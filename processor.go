@@ -11,9 +11,11 @@ import (
     "os"
     "path/filepath"
     "strconv"
+    "strings"
 )
 
-func ProcessDemo(demoPath string) error {
+// Modified to accept a demoID parameter
+func ProcessDemo(demoPath string, demoID string) error {
     // Create a map of users to voice data
     voiceDataPerPlayer := map[string][][]byte{}
 
@@ -42,9 +44,13 @@ func ProcessDemo(demoPath string) error {
         return fmt.Errorf("failed to parse demo: %v", err)
     }
 
+    // Clean old files from the same demo if they exist (when re-processing the same demo)
+    cleanupOldDemoFiles(demoID)
+
     // For each user's data, create a wav file containing their voice comms
     for playerId, voiceData := range voiceDataPerPlayer {
-        wavFilePath := filepath.Join(outputDir, fmt.Sprintf("%s.wav", playerId))
+        // Add demoID to filename so we can associate voices with specific demos
+        wavFilePath := filepath.Join(outputDir, fmt.Sprintf("%s_%s.wav", playerId, demoID))
 
         if format == "VOICEDATA_FORMAT_OPUS" {
             err = opusToWav(voiceData, wavFilePath)
@@ -62,6 +68,28 @@ func ProcessDemo(demoPath string) error {
     }
 
     return nil
+}
+
+// Helper function to clean up old files related to the same demo
+func cleanupOldDemoFiles(demoID string) {
+    // Delete the old metadata file if it exists
+    metadataPath := filepath.Join(outputDir, demoID+".json")
+    os.Remove(metadataPath)
+
+    // Delete old WAV files from this demo
+    files, err := os.ReadDir(outputDir)
+    if err != nil {
+        log.Printf("Error reading output directory: %v", err)
+        return
+    }
+
+    for _, file := range files {
+        if !file.IsDir() && strings.Contains(file.Name(), "_"+demoID+".wav") {
+            os.Remove(filepath.Join(outputDir, file.Name()))
+        }
+    }
+
+    log.Printf("Cleaned up old files for demo ID: %s", demoID)
 }
 
 func convertAudioDataToWavFiles(payloads [][]byte, fileName string) error {
