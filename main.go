@@ -52,8 +52,16 @@ func main() {
 	http.HandleFunc("/faceit/player", handleFaceitPlayer)
 	http.Handle("/output/", http.StripPrefix("/output/", http.FileServer(http.Dir(outputDir))))
 
-	fmt.Println("Server started at http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// Configure server with extended timeouts for large file uploads
+	server := &http.Server{
+		Addr:         ":9000",
+		ReadTimeout:  30 * time.Minute, // Long timeout for large uploads
+		WriteTimeout: 30 * time.Minute, // Long timeout for processing
+		IdleTimeout:  120 * time.Second,
+	}
+
+	fmt.Println("Server started at http://localhost:9000")
+	log.Fatal(server.ListenAndServe())
 }
 
 // Modified auth function that only checks password (no username)
@@ -205,6 +213,10 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
             .button:hover {
                 background: #45a049;
             }
+            .button:disabled {
+                background: #666;
+                cursor: not-allowed;
+            }
             .players-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -275,14 +287,45 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
                 color: #888;
                 font-style: italic;
             }
+            .processing-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.8);
+                display: none;
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+                flex-direction: column;
+            }
+            .spinner {
+                border: 5px solid rgba(0, 0, 0, 0.1);
+                width: 50px;
+                height: 50px;
+                border-radius: 50%;
+                border-left-color: #4CAF50;
+                animation: spin 1s linear infinite;
+                margin-bottom: 20px;
+            }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            .progress-text {
+                color: white;
+                margin-top: 15px;
+                font-size: 16px;
+            }
         </style>
     </head>
     <body>
         <div class="upload-box">
             <h1>CS2 Voice Extractor</h1>
-            <form action="/upload" method="post" enctype="multipart/form-data">
-                <input type="file" name="demo" accept=".dem" required>
-                <input type="submit" value="Extract Voices" class="button">
+            <form action="/upload" method="post" enctype="multipart/form-data" id="uploadForm">
+                <input type="file" name="demo" accept=".dem" required id="demoFile">
+                <input type="submit" value="Extract Voices" class="button" id="submitButton">
             </form>
         </div>
 
@@ -317,6 +360,13 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
         </div>
         {{end}}
 
+        <!-- Processing overlay -->
+        <div class="processing-overlay" id="processingOverlay">
+            <div class="spinner"></div>
+            <div class="progress-text">Processing demo file...</div>
+            <div class="progress-text" id="progressDetail">This may take a few minutes for large files</div>
+        </div>
+
         <script>
         function getLevelColor(level) {
             const colors = {
@@ -329,6 +379,48 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
         }
 
         document.addEventListener('DOMContentLoaded', function() {
+            const uploadForm = document.getElementById('uploadForm');
+            const processingOverlay = document.getElementById('processingOverlay');
+            const submitButton = document.getElementById('submitButton');
+            const demoFileInput = document.getElementById('demoFile');
+            const progressDetail = document.getElementById('progressDetail');
+
+            // Show loading overlay when form is submitted
+            uploadForm.addEventListener('submit', function(e) {
+                if (demoFileInput.files.length > 0) {
+                    const fileSize = demoFileInput.files[0].size;
+                    const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
+
+                    processingOverlay.style.display = 'flex';
+                    submitButton.disabled = true;
+
+					progressDetail.textContent = "Processing " + fileSizeMB + " MB demo file. This may take " + (fileSizeMB > 100 ? "several minutes" : "a few minutes") + ".";
+
+                    // Add status update every 5 seconds
+                    let seconds = 0;
+                    const processingTimer = setInterval(function() {
+                        seconds += 5;
+						progressDetail.textContent = "Still processing... (" + seconds + "s elapsed)";
+                    }, 5000);
+
+                    // Store timer in sessionStorage so we can clear it if page reloads
+                    sessionStorage.setItem('processingTimer', processingTimer);
+                }
+            });
+
+            // Check if we just came back from processing (page reload)
+            if (sessionStorage.getItem('processing') === 'true') {
+                processingOverlay.style.display = 'none';
+                sessionStorage.removeItem('processing');
+
+                // Clear any existing timer
+                const oldTimer = sessionStorage.getItem('processingTimer');
+                if (oldTimer) {
+                    clearInterval(parseInt(oldTimer));
+                    sessionStorage.removeItem('processingTimer');
+                }
+            }
+
             const players = document.querySelectorAll('.player-card');
             players.forEach(function(playerCard) {
                 const steamId = playerCard.id.split('-')[1];
@@ -364,227 +456,227 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
     </html>
     `
 
-    // Get current demo ID from session
-    currentDemoID := getCurrentDemoID(r)
+	// Get current demo ID from session
+	currentDemoID := getCurrentDemoID(r)
 
-    var players []PlayerInfo
-    var allFiles []string
+	var players []PlayerInfo
+	var allFiles []string
 
-    // Debug mode - show all files in output directory
-    showDebug := r.URL.Query().Get("debug") == "1"
+	// Debug mode - show all files in output directory
+	showDebug := r.URL.Query().Get("debug") == "1"
 
-    if showDebug {
-        files, err := os.ReadDir(outputDir)
-        if err == nil {
-            for _, file := range files {
-                if !file.IsDir() {
-                    allFiles = append(allFiles, file.Name())
-                }
-            }
-        }
-    }
+	if showDebug {
+		files, err := os.ReadDir(outputDir)
+		if err == nil {
+			for _, file := range files {
+				if !file.IsDir() {
+					allFiles = append(allFiles, file.Name())
+				}
+			}
+		}
+	}
 
-    if currentDemoID != "" {
-        // Read metadata file to get list of players for this demo
-        metadataPath := filepath.Join(outputDir, currentDemoID+".json")
-        if metadataExists, _ := fileExists(metadataPath); metadataExists {
-            metadataFile, err := os.ReadFile(metadataPath)
-            if err == nil {
-                var metadata struct {
-                    Filename string      `json:"filename"`
-                    Players  []PlayerInfo `json:"players"`
-                }
+	if currentDemoID != "" {
+		// Read metadata file to get list of players for this demo
+		metadataPath := filepath.Join(outputDir, currentDemoID+".json")
+		if metadataExists, _ := fileExists(metadataPath); metadataExists {
+			metadataFile, err := os.ReadFile(metadataPath)
+			if err == nil {
+				var metadata struct {
+					Filename string       `json:"filename"`
+					Players  []PlayerInfo `json:"players"`
+				}
 
-                if err := json.Unmarshal(metadataFile, &metadata); err == nil {
-                    players = metadata.Players
-                }
-            }
-        } else {
-            // If metadata file doesn't exist, look for files directly
-            files, err := os.ReadDir(outputDir)
-            if err == nil {
-                for _, file := range files {
-                    if !file.IsDir() && strings.Contains(file.Name(), "_"+currentDemoID+".wav") {
-                        parts := strings.Split(file.Name(), "_"+currentDemoID+".wav")
-                        if len(parts) > 0 {
-                            steamID := parts[0]
-                            players = append(players, PlayerInfo{
-                                SteamID:   steamID,
-                                AudioFile: file.Name(),
-                                DemoID:    currentDemoID,
-                            })
-                        }
-                    }
-                }
-            }
+				if err := json.Unmarshal(metadataFile, &metadata); err == nil {
+					players = metadata.Players
+				}
+			}
+		} else {
+			// If metadata file doesn't exist, look for files directly
+			files, err := os.ReadDir(outputDir)
+			if err == nil {
+				for _, file := range files {
+					if !file.IsDir() && strings.Contains(file.Name(), "_"+currentDemoID+".wav") {
+						parts := strings.Split(file.Name(), "_"+currentDemoID+".wav")
+						if len(parts) > 0 {
+							steamID := parts[0]
+							players = append(players, PlayerInfo{
+								SteamID:   steamID,
+								AudioFile: file.Name(),
+								DemoID:    currentDemoID,
+							})
+						}
+					}
+				}
+			}
 
-            // Create metadata file if it doesn't exist but we found files
-            if len(players) > 0 {
-                saveMetadata(currentDemoID, getDemoFilename(currentDemoID))
-            }
-        }
-    }
+			// Create metadata file if it doesn't exist but we found files
+			if len(players) > 0 {
+				saveMetadata(currentDemoID, getDemoFilename(currentDemoID))
+			}
+		}
+	}
 
-    t := template.Must(template.New("home").Parse(tmpl))
-    t.Execute(w, struct{
-        Players []PlayerInfo
-        CurrentDemo string
-        Debug bool
-        DemoID string
-        Files []string
-    }{
-        Players: players,
-        CurrentDemo: getDemoFilename(currentDemoID),
-        Debug: showDebug,
-        DemoID: currentDemoID,
-        Files: allFiles,
-    })
+	t := template.Must(template.New("home").Parse(tmpl))
+	t.Execute(w, struct {
+		Players     []PlayerInfo
+		CurrentDemo string
+		Debug       bool
+		DemoID      string
+		Files       []string
+	}{
+		Players:     players,
+		CurrentDemo: getDemoFilename(currentDemoID),
+		Debug:       showDebug,
+		DemoID:      currentDemoID,
+		Files:       allFiles,
+	})
 }
 
 // Helper to get the demo ID from the session cookie
 func getCurrentDemoID(r *http.Request) string {
-    demoCookie, err := r.Cookie("current_demo_id")
-    if err != nil {
-        return ""
-    }
-    return demoCookie.Value
+	demoCookie, err := r.Cookie("current_demo_id")
+	if err != nil {
+		return ""
+	}
+	return demoCookie.Value
 }
 
 // Helper to get demo filename from ID
 func getDemoFilename(demoID string) string {
-    if demoID == "" {
-        return ""
-    }
+	if demoID == "" {
+		return ""
+	}
 
-    metadataPath := filepath.Join(outputDir, demoID+".json")
-    metadataFile, err := os.ReadFile(metadataPath)
-    if err != nil {
-        return demoID
-    }
+	metadataPath := filepath.Join(outputDir, demoID+".json")
+	metadataFile, err := os.ReadFile(metadataPath)
+	if err != nil {
+		return demoID
+	}
 
-    var metadata struct {
-        Filename string `json:"filename"`
-    }
+	var metadata struct {
+		Filename string `json:"filename"`
+	}
 
-    if err := json.Unmarshal(metadataFile, &metadata); err != nil {
-        return demoID
-    }
+	if err := json.Unmarshal(metadataFile, &metadata); err != nil {
+		return demoID
+	}
 
-    return metadata.Filename
+	return metadata.Filename
 }
 
 // Helper to check if a file exists
 func fileExists(path string) (bool, error) {
-    _, err := os.Stat(path)
-    if err == nil {
-        return true, nil
-    }
-    if os.IsNotExist(err) {
-        return false, nil
-    }
-    return false, err
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 func handleUpload(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodPost {
-        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-        return
-    }
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-    // Parse the uploaded file
-    file, header, err := r.FormFile("demo")
-    if err != nil {
-        http.Error(w, "Error receiving file", http.StatusBadRequest)
-        return
-    }
-    defer file.Close()
+	// Parse the uploaded file
+	file, header, err := r.FormFile("demo")
+	if err != nil {
+		http.Error(w, "Error receiving file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
 
-    // Create a unique ID for this demo upload (using a simple timestamp)
-    demoID := fmt.Sprintf("demo_%d", time.Now().UnixNano())
+	// Create a unique ID for this demo upload (using a simple timestamp)
+	demoID := fmt.Sprintf("demo_%d", time.Now().UnixNano())
 
-    // Create temporary file for processing
-    tempPath := filepath.Join(uploadDir, header.Filename)
-    tempFile, err := os.Create(tempPath)
-    if err != nil {
-        http.Error(w, "Error saving file", http.StatusInternalServerError)
-        return
-    }
-    defer tempFile.Close()
+	// Create temporary file for processing
+	tempPath := filepath.Join(uploadDir, header.Filename)
+	tempFile, err := os.Create(tempPath)
+	if err != nil {
+		http.Error(w, "Error saving file", http.StatusInternalServerError)
+		return
+	}
+	defer tempFile.Close()
 
-    // Copy uploaded file to temporary location
-    _, err = io.Copy(tempFile, file)
-    if err != nil {
-        http.Error(w, "Error saving file", http.StatusInternalServerError)
-        return
-    }
+	// Copy uploaded file to temporary location
+	_, err = io.Copy(tempFile, file)
+	if err != nil {
+		http.Error(w, "Error saving file", http.StatusInternalServerError)
+		return
+	}
 
-    // Process the demo file with the demo ID
-    err = ProcessDemo(tempPath, demoID)
-    if err != nil {
-        http.Error(w, "Error processing demo: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
+	// Process the demo file with the demo ID
+	err = ProcessDemo(tempPath, demoID)
+	if err != nil {
+		http.Error(w, "Error processing demo: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-    // Save demo metadata
-    saveMetadata(demoID, header.Filename)
+	// Save demo metadata
+	saveMetadata(demoID, header.Filename)
 
-    // Set a cookie to remember which demo was uploaded
-    http.SetCookie(w, &http.Cookie{
-        Name:     "current_demo_id",
-        Value:    demoID,
-        Path:     "/",
-        Expires:  time.Now().Add(24 * time.Hour),
-    })
+	// Set a cookie to remember which demo was uploaded
+	http.SetCookie(w, &http.Cookie{
+		Name:    "current_demo_id",
+		Value:   demoID,
+		Path:    "/",
+		Expires: time.Now().Add(24 * time.Hour),
+	})
 
-    // Clean up
-    os.Remove(tempPath)
+	// Clean up
+	os.Remove(tempPath)
 
-    // Redirect back to home page
-    http.Redirect(w, r, "/", http.StatusSeeOther)
+	// Redirect back to home page
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // Save metadata about the demo
 func saveMetadata(demoID, filename string) error {
-    // Read the output directory to find files associated with this demo
-    files, err := os.ReadDir(outputDir)
-    if err != nil {
-        return err
-    }
+	// Read the output directory to find files associated with this demo
+	files, err := os.ReadDir(outputDir)
+	if err != nil {
+		return err
+	}
 
-    var players []PlayerInfo
-    for _, file := range files {
-        if !file.IsDir() && strings.Contains(file.Name(), "_"+demoID+".wav") {
-            // Extract steamID from filename (format: steamID_demoID.wav)
-            parts := strings.Split(file.Name(), "_"+demoID+".wav")
-            if len(parts) > 0 {
-                steamID := parts[0]
-                players = append(players, PlayerInfo{
-                    SteamID:   steamID,
-                    AudioFile: file.Name(),
-                    DemoID:    demoID,
-                })
-            }
-        }
-    }
+	var players []PlayerInfo
+	for _, file := range files {
+		if !file.IsDir() && strings.Contains(file.Name(), "_"+demoID+".wav") {
+			// Extract steamID from filename (format: steamID_demoID.wav)
+			parts := strings.Split(file.Name(), "_"+demoID+".wav")
+			if len(parts) > 0 {
+				steamID := parts[0]
+				players = append(players, PlayerInfo{
+					SteamID:   steamID,
+					AudioFile: file.Name(),
+					DemoID:    demoID,
+				})
+			}
+		}
+	}
 
-    // Log for debugging
-    log.Printf("Found %d player voices for demo ID %s", len(players), demoID)
+	// Log for debugging
+	log.Printf("Found %d player voices for demo ID %s", len(players), demoID)
 
-    // Save metadata as JSON
-    metadata := struct {
-        Filename string      `json:"filename"`
-        Players  []PlayerInfo `json:"players"`
-        UploadTime time.Time `json:"upload_time"`
-    }{
-        Filename:   filename,
-        Players:    players,
-        UploadTime: time.Now(),
-    }
+	// Save metadata as JSON
+	metadata := struct {
+		Filename   string       `json:"filename"`
+		Players    []PlayerInfo `json:"players"`
+		UploadTime time.Time    `json:"upload_time"`
+	}{
+		Filename:   filename,
+		Players:    players,
+		UploadTime: time.Now(),
+	}
 
-    metadataBytes, err := json.Marshal(metadata)
-    if err != nil {
-        return err
-    }
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
 
-    return os.WriteFile(filepath.Join(outputDir, demoID+".json"), metadataBytes, 0644)
+	return os.WriteFile(filepath.Join(outputDir, demoID+".json"), metadataBytes, 0644)
 }
