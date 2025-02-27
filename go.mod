@@ -1,4 +1,4 @@
-module CS2VoiceData
+module demovoice
 
 go 1.21
 

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"demovoice/api"
+	"demovoice/storage"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -9,7 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
+
 	"time"
 )
 
@@ -19,37 +21,30 @@ const (
 	password  = "faceit" // Set your password here
 )
 
-type PlayerInfo struct {
-	SteamID     string
-	Nickname    string
-	AudioFile   string
-	FaceitLevel int
-	FaceitElo   int
-	DemoID      string // Added field to track which demo the voice belongs to
-}
+// Initialize global clients
+var (
+	faceitClient  *api.FaceitClient
+	matchClient   *api.MatchClient
+	metadataStore *storage.MetadataStore
+)
 
-type FaceitResponse struct {
-	Payload []struct {
-		Nickname string `json:"nickname"`
-		Games    struct {
-			CS2 struct {
-				SkillLevel int    `json:"skill_level"`
-				FaceitElo  int    `json:"faceit_elo"`
-				GameName   string `json:"game_name"`
-			} `json:"cs2"`
-		} `json:"games"`
-	} `json:"payload"`
-}
-
-func main() {
+func init() {
 	// Create required directories
 	os.MkdirAll(uploadDir, 0755)
 	os.MkdirAll(outputDir, 0755)
 
+	// Initialize clients
+	faceitClient = api.NewFaceitClient()
+	matchClient = api.NewMatchClient()
+	metadataStore = storage.NewMetadataStore(outputDir)
+}
+
+func main() {
 	// Handle routes
 	http.HandleFunc("/", passwordAuth(handleHome))
 	http.HandleFunc("/upload", passwordAuth(handleUpload))
 	http.HandleFunc("/faceit/player", handleFaceitPlayer)
+	http.HandleFunc("/api/match", passwordAuth(handleMatchInfo))
 	http.Handle("/output/", http.StripPrefix("/output/", http.FileServer(http.Dir(outputDir))))
 
 	// Configure server with extended timeouts for large file uploads
@@ -159,24 +154,43 @@ func handleFaceitPlayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch player data from Faceit API
-	url := fmt.Sprintf("https://www.faceit.com/api/users/v1/users?game=cs2&game_id=%s", steamID)
-
-	resp, err := http.Get(url)
+	// Use our new FaceitClient
+	response, err := faceitClient.GetPlayerInfo(steamID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
-
-	var result FaceitResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	json.NewEncoder(w).Encode(response)
+}
+
+// New handler for match information
+func handleMatchInfo(w http.ResponseWriter, r *http.Request) {
+	matchID := r.URL.Query().Get("match_id")
+	demoID := r.URL.Query().Get("demo_id")
+
+	if matchID == "" || demoID == "" {
+		http.Error(w, "Both match_id and demo_id are required", http.StatusBadRequest)
+		return
+	}
+
+	// Get match information
+	matchInfo, err := matchClient.GetMatchInfoByID(matchID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error getting match info: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Update metadata with match information
+	err = metadataStore.EnrichMetadataWithMatchInfo(demoID, matchID, matchInfo)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error updating metadata: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(matchInfo)
 }
 
 func handleHome(w http.ResponseWriter, r *http.Request) {
@@ -264,6 +278,21 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
                 color: #bbb;
                 font-size: 0.9em;
             }
+            .team-label {
+                display: inline-block;
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 0.8em;
+                margin-top: 5px;
+            }
+            .team-1 {
+                background: #3498db;
+                color: white;
+            }
+            .team-2 {
+                background: #e74c3c;
+                color: white;
+            }
             .loading {
                 color: #999;
                 font-style: italic;
@@ -318,6 +347,30 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
                 margin-top: 15px;
                 font-size: 16px;
             }
+            .team-section {
+                margin-top: 15px;
+                border-top: 1px solid #444;
+                padding-top: 10px;
+            }
+            .match-info {
+                background: #333;
+                padding: 10px;
+                border-radius: 4px;
+                margin-bottom: 15px;
+            }
+            .match-id-input {
+                display: flex;
+                margin-top: 10px;
+                gap: 10px;
+            }
+            .match-id-input input {
+                flex-grow: 1;
+                padding: 8px;
+                background: #444;
+                border: 1px solid #555;
+                border-radius: 4px;
+                color: white;
+            }
         </style>
     </head>
     <body>
@@ -331,28 +384,90 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 
         {{if .CurrentDemo}}
         <div class="demo-info">
-            <strong>Current Demo:</strong> {{.CurrentDemo}}
-        </div>
-        {{end}}
-
-        {{if .Players}}
-        <div class="players-grid">
-            {{range .Players}}
-            <div class="player-card" id="player-{{.SteamID}}">
-                <div class="player-info">
-                    <div class="faceit-level" style="background: #999;">-</div>
-                    <div>
-                        <div class="faceit-nickname">Loading...</div>
-                        <div class="steam-id">{{.SteamID}}</div>
-                        <div class="faceit-elo"></div>
-                    </div>
-                </div>
-                <audio controls class="audio-controls">
-                    <source src="/output/{{.AudioFile}}" type="audio/wav">
-                    Your browser does not support the audio element.
-                </audio>
+            <strong>Current Demo:</strong> {{.CurrentDemo.Filename}}
+            {{if .CurrentDemo.MatchID}}
+            <div class="match-info">
+                <strong>Match ID:</strong> {{.CurrentDemo.MatchID}}<br>
+                <strong>Map:</strong> {{.CurrentDemo.Map}}<br>
+                <strong>Competition:</strong> {{.CurrentDemo.Competition}}
+            </div>
+            {{else}}
+            <div class="match-id-input">
+                <input type="text" id="matchIdInput" placeholder="Enter Match ID to link teams">
+                <button id="linkMatchButton" class="button">Link Match</button>
             </div>
             {{end}}
+        </div>
+
+        <!-- Team 1 Section -->
+        <div class="team-section">
+            <h2>Team 1</h2>
+            <div class="players-grid">
+                {{range .Team1Players}}
+                <div class="player-card" id="player-{{.SteamID}}">
+                    <div class="player-info">
+                        <div class="faceit-level" style="background: #999;">-</div>
+                        <div>
+                            <div class="faceit-nickname">Loading...</div>
+                            <div class="steam-id">{{.SteamID}}</div>
+                            <div class="faceit-elo"></div>
+                            <div class="team-label team-1">Team 1</div>
+                        </div>
+                    </div>
+                    <audio controls class="audio-controls">
+                        <source src="/output/{{.AudioFile}}" type="audio/wav">
+                        Your browser does not support the audio element.
+                    </audio>
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Team 2 Section -->
+        <div class="team-section">
+            <h2>Team 2</h2>
+            <div class="players-grid">
+                {{range .Team2Players}}
+                <div class="player-card" id="player-{{.SteamID}}">
+                    <div class="player-info">
+                        <div class="faceit-level" style="background: #999;">-</div>
+                        <div>
+                            <div class="faceit-nickname">Loading...</div>
+                            <div class="steam-id">{{.SteamID}}</div>
+                            <div class="faceit-elo"></div>
+                            <div class="team-label team-2">Team 2</div>
+                        </div>
+                    </div>
+                    <audio controls class="audio-controls">
+                        <source src="/output/{{.AudioFile}}" type="audio/wav">
+                        Your browser does not support the audio element.
+                    </audio>
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Unassigned Players Section -->
+        <div class="team-section">
+            <h2>Unassigned Players</h2>
+            <div class="players-grid">
+                {{range .UnassignedPlayers}}
+                <div class="player-card" id="player-{{.SteamID}}">
+                    <div class="player-info">
+                        <div class="faceit-level" style="background: #999;">-</div>
+                        <div>
+                            <div class="faceit-nickname">Loading...</div>
+                            <div class="steam-id">{{.SteamID}}</div>
+                            <div class="faceit-elo"></div>
+                        </div>
+                    </div>
+                    <audio controls class="audio-controls">
+                        <source src="/output/{{.AudioFile}}" type="audio/wav">
+                        Your browser does not support the audio element.
+                    </audio>
+                </div>
+                {{end}}
+            </div>
         </div>
         {{else}}
         <div class="no-demo">
@@ -384,6 +499,35 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
             const submitButton = document.getElementById('submitButton');
             const demoFileInput = document.getElementById('demoFile');
             const progressDetail = document.getElementById('progressDetail');
+            const linkMatchButton = document.getElementById('linkMatchButton');
+            const matchIdInput = document.getElementById('matchIdInput');
+
+            // Link match button event
+            if (linkMatchButton) {
+                linkMatchButton.addEventListener('click', function() {
+                    const matchId = matchIdInput.value.trim();
+                    if (!matchId) {
+                        alert('Please enter a match ID');
+                        return;
+                    }
+
+                    const demoId = '{{.CurrentDemo.DemoID}}';
+                    fetch('/api/match?match_id=' + matchId + '&demo_id=' + demoId)
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Failed to link match');
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            // Reload the page to show updated team assignments
+                            window.location.reload();
+                        })
+                        .catch(error => {
+                            alert('Error linking match: ' + error.message);
+                        });
+                });
+            }
 
             // Show loading overlay when form is submitted
             uploadForm.addEventListener('submit', function(e) {
@@ -394,13 +538,13 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
                     processingOverlay.style.display = 'flex';
                     submitButton.disabled = true;
 
-					progressDetail.textContent = "Processing " + fileSizeMB + " MB demo file. This may take " + (fileSizeMB > 100 ? "several minutes" : "a few minutes") + ".";
+                    progressDetail.textContent = "Processing " + fileSizeMB + " MB demo file. This may take " + (fileSizeMB > 100 ? "several minutes" : "a few minutes") + ".";
 
                     // Add status update every 5 seconds
                     let seconds = 0;
                     const processingTimer = setInterval(function() {
                         seconds += 5;
-						progressDetail.textContent = "Still processing... (" + seconds + "s elapsed)";
+                        progressDetail.textContent = "Still processing... (" + seconds + "s elapsed)";
                     }, 5000);
 
                     // Store timer in sessionStorage so we can clear it if page reloads
@@ -421,6 +565,7 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
                 }
             }
 
+            // Load Faceit data for each player
             const players = document.querySelectorAll('.player-card');
             players.forEach(function(playerCard) {
                 const steamId = playerCard.id.split('-')[1];
@@ -459,77 +604,41 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 	// Get current demo ID from session
 	currentDemoID := getCurrentDemoID(r)
 
-	var players []PlayerInfo
-	var allFiles []string
-
-	// Debug mode - show all files in output directory
-	showDebug := r.URL.Query().Get("debug") == "1"
-
-	if showDebug {
-		files, err := os.ReadDir(outputDir)
-		if err == nil {
-			for _, file := range files {
-				if !file.IsDir() {
-					allFiles = append(allFiles, file.Name())
-				}
-			}
-		}
-	}
+	var currentDemo *storage.DemoMetadata
+	var team1Players []api.PlayerInfo
+	var team2Players []api.PlayerInfo
+	var unassignedPlayers []api.PlayerInfo
 
 	if currentDemoID != "" {
-		// Read metadata file to get list of players for this demo
-		metadataPath := filepath.Join(outputDir, currentDemoID+".json")
-		if metadataExists, _ := fileExists(metadataPath); metadataExists {
-			metadataFile, err := os.ReadFile(metadataPath)
-			if err == nil {
-				var metadata struct {
-					Filename string       `json:"filename"`
-					Players  []PlayerInfo `json:"players"`
-				}
+		// Try to load metadata for this demo
+		metadata, err := metadataStore.LoadMetadata(currentDemoID)
+		if err == nil {
+			currentDemo = metadata
 
-				if err := json.Unmarshal(metadataFile, &metadata); err == nil {
-					players = metadata.Players
+			// Separate players by team
+			for _, player := range metadata.Players {
+				if player.Team == "Team 1" {
+					team1Players = append(team1Players, player)
+				} else if player.Team == "Team 2" {
+					team2Players = append(team2Players, player)
+				} else {
+					unassignedPlayers = append(unassignedPlayers, player)
 				}
-			}
-		} else {
-			// If metadata file doesn't exist, look for files directly
-			files, err := os.ReadDir(outputDir)
-			if err == nil {
-				for _, file := range files {
-					if !file.IsDir() && strings.Contains(file.Name(), "_"+currentDemoID+".wav") {
-						parts := strings.Split(file.Name(), "_"+currentDemoID+".wav")
-						if len(parts) > 0 {
-							steamID := parts[0]
-							players = append(players, PlayerInfo{
-								SteamID:   steamID,
-								AudioFile: file.Name(),
-								DemoID:    currentDemoID,
-							})
-						}
-					}
-				}
-			}
-
-			// Create metadata file if it doesn't exist but we found files
-			if len(players) > 0 {
-				saveMetadata(currentDemoID, getDemoFilename(currentDemoID))
 			}
 		}
 	}
 
 	t := template.Must(template.New("home").Parse(tmpl))
 	t.Execute(w, struct {
-		Players     []PlayerInfo
-		CurrentDemo string
-		Debug       bool
-		DemoID      string
-		Files       []string
+		CurrentDemo      *storage.DemoMetadata
+		Team1Players     []api.PlayerInfo
+		Team2Players     []api.PlayerInfo
+		UnassignedPlayers []api.PlayerInfo
 	}{
-		Players:     players,
-		CurrentDemo: getDemoFilename(currentDemoID),
-		Debug:       showDebug,
-		DemoID:      currentDemoID,
-		Files:       allFiles,
+		CurrentDemo:      currentDemo,
+		Team1Players:     team1Players,
+		Team2Players:     team2Players,
+		UnassignedPlayers: unassignedPlayers,
 	})
 }
 
@@ -540,41 +649,6 @@ func getCurrentDemoID(r *http.Request) string {
 		return ""
 	}
 	return demoCookie.Value
-}
-
-// Helper to get demo filename from ID
-func getDemoFilename(demoID string) string {
-	if demoID == "" {
-		return ""
-	}
-
-	metadataPath := filepath.Join(outputDir, demoID+".json")
-	metadataFile, err := os.ReadFile(metadataPath)
-	if err != nil {
-		return demoID
-	}
-
-	var metadata struct {
-		Filename string `json:"filename"`
-	}
-
-	if err := json.Unmarshal(metadataFile, &metadata); err != nil {
-		return demoID
-	}
-
-	return metadata.Filename
-}
-
-// Helper to check if a file exists
-func fileExists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, err
 }
 
 func handleUpload(w http.ResponseWriter, r *http.Request) {
@@ -617,8 +691,11 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save demo metadata
-	saveMetadata(demoID, header.Filename)
+	// Save demo metadata using our new metadata store
+	_, err = metadataStore.SaveMetadata(demoID, header.Filename)
+	if err != nil {
+		log.Printf("Warning: Failed to save metadata: %v", err)
+	}
 
 	// Set a cookie to remember which demo was uploaded
 	http.SetCookie(w, &http.Cookie{
@@ -633,50 +710,4 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect back to home page
 	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-// Save metadata about the demo
-func saveMetadata(demoID, filename string) error {
-	// Read the output directory to find files associated with this demo
-	files, err := os.ReadDir(outputDir)
-	if err != nil {
-		return err
-	}
-
-	var players []PlayerInfo
-	for _, file := range files {
-		if !file.IsDir() && strings.Contains(file.Name(), "_"+demoID+".wav") {
-			// Extract steamID from filename (format: steamID_demoID.wav)
-			parts := strings.Split(file.Name(), "_"+demoID+".wav")
-			if len(parts) > 0 {
-				steamID := parts[0]
-				players = append(players, PlayerInfo{
-					SteamID:   steamID,
-					AudioFile: file.Name(),
-					DemoID:    demoID,
-				})
-			}
-		}
-	}
-
-	// Log for debugging
-	log.Printf("Found %d player voices for demo ID %s", len(players), demoID)
-
-	// Save metadata as JSON
-	metadata := struct {
-		Filename   string       `json:"filename"`
-		Players    []PlayerInfo `json:"players"`
-		UploadTime time.Time    `json:"upload_time"`
-	}{
-		Filename:   filename,
-		Players:    players,
-		UploadTime: time.Now(),
-	}
-
-	metadataBytes, err := json.Marshal(metadata)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(filepath.Join(outputDir, demoID+".json"), metadataBytes, 0644)
 }

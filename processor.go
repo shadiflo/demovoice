@@ -1,7 +1,7 @@
 package main
 
 import (
-    "CS2VoiceData/decoder"
+    "demovoice/decoder"
     "fmt"
     "github.com/go-audio/audio"
     "github.com/go-audio/wav"
@@ -14,7 +14,8 @@ import (
     "strings"
 )
 
-// Modified to accept a demoID parameter
+// ProcessDemo processes a demo file and extracts voice data
+// The demoID parameter is used to associate voice files with a specific demo
 func ProcessDemo(demoPath string, demoID string) error {
     // Create a map of users to voice data
     voiceDataPerPlayer := map[string][][]byte{}
