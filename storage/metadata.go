@@ -161,3 +161,14 @@ func (s *MetadataStore) EnrichMetadataWithMatchInfo(demoID string, matchID strin
 	metadataPath := filepath.Join(s.OutputDir, demoID+".json")
 	return os.WriteFile(metadataPath, metadataBytes, 0644)
 }
+
+// UpdateMetadata saves an existing metadata object back to disk
+func (s *MetadataStore) UpdateMetadata(metadata *DemoMetadata) error {
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+
+	metadataPath := filepath.Join(s.OutputDir, metadata.DemoID+".json")
+	return os.WriteFile(metadataPath, metadataBytes, 0644)
+}
