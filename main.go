@@ -54,6 +54,7 @@ func main() {
 	http.HandleFunc("/upload", handleUpload)
 	http.HandleFunc("/faceit/player", handleFaceitPlayer)
 	http.Handle("/output/", http.StripPrefix("/output/", http.FileServer(http.Dir(outputDir))))
+	http.Handle("/icons/", http.StripPrefix("/icons/", http.FileServer(http.Dir("./icons"))))
 
 	// Configure server with extended timeouts for large file uploads
 	server := &http.Server{
@@ -177,50 +178,11 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
                 transform: none;
                 box-shadow: none;
             }
-            .teams-container {
+            .players-container {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-                gap: 2rem;
+                grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                gap: 1.5rem;
                 margin-top: 2rem;
-            }
-            .team-section {
-                background: rgba(30, 41, 59, 0.4);
-                backdrop-filter: blur(10px);
-                border: 1px solid rgba(148, 163, 184, 0.1);
-                border-radius: 12px;
-                padding: 1.5rem;
-                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
-            }
-            .team-header {
-                display: flex;
-                align-items: center;
-                gap: 0.75rem;
-                margin-bottom: 1.5rem;
-                padding-bottom: 0.75rem;
-                border-bottom: 2px solid rgba(148, 163, 184, 0.1);
-            }
-            .team-icon {
-                width: 12px;
-                height: 12px;
-                border-radius: 50%;
-            }
-            .team-1 .team-icon {
-                background: linear-gradient(135deg, #06b6d4, #0891b2);
-            }
-            .team-2 .team-icon {
-                background: linear-gradient(135deg, #f59e0b, #d97706);
-            }
-            .unassigned .team-icon {
-                background: linear-gradient(135deg, #6b7280, #4b5563);
-            }
-            .team-title {
-                font-size: 1.25rem;
-                font-weight: 600;
-                color: #f1f5f9;
-            }
-            .players-grid {
-                display: grid;
-                gap: 1rem;
             }
             .player-card {
                 background: rgba(51, 65, 85, 0.3);
@@ -252,6 +214,14 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
                 font-weight: 700;
                 font-size: 0.875rem;
                 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                overflow: hidden;
+                background: #6b7280;
+            }
+            .faceit-level img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                border-radius: 4px;
             }
             .player-info {
                 flex: 1;
@@ -331,24 +301,147 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
                 z-index: 1000;
                 flex-direction: column;
             }
+            .loading-container {
+                background: rgba(30, 41, 59, 0.9);
+                border: 1px solid rgba(102, 126, 234, 0.3);
+                border-radius: 16px;
+                padding: 3rem 2.5rem;
+                text-align: center;
+                max-width: 400px;
+                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            }
+            .spinner-container {
+                position: relative;
+                margin-bottom: 2rem;
+            }
             .spinner {
-                width: 60px;
-                height: 60px;
-                border: 4px solid rgba(102, 126, 234, 0.2);
+                width: 80px;
+                height: 80px;
+                border: 4px solid rgba(102, 126, 234, 0.1);
+                border-radius: 50%;
+                position: relative;
+                animation: spin 2s linear infinite;
+            }
+            .spinner::before {
+                content: '';
+                position: absolute;
+                top: -4px;
+                left: -4px;
+                right: -4px;
+                bottom: -4px;
+                border: 4px solid transparent;
                 border-top: 4px solid #667eea;
                 border-radius: 50%;
+                animation: spin 1.5s linear infinite reverse;
+            }
+            .spinner::after {
+                content: '';
+                position: absolute;
+                top: 6px;
+                left: 6px;
+                right: 6px;
+                bottom: 6px;
+                border: 3px solid rgba(102, 126, 234, 0.2);
+                border-top: 3px solid #764ba2;
+                border-radius: 50%;
                 animation: spin 1s linear infinite;
-                margin-bottom: 1.5rem;
             }
             @keyframes spin {
                 0% { transform: rotate(0deg); }
                 100% { transform: rotate(360deg); }
             }
+            .loading-title {
+                color: #f1f5f9;
+                font-size: 1.5rem;
+                font-weight: 700;
+                margin-bottom: 1rem;
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
             .progress-text {
-                color: #e2e8f0;
-                font-size: 1.1rem;
+                color: #cbd5e1;
+                font-size: 1rem;
+                margin-bottom: 0.75rem;
+                line-height: 1.5;
+            }
+            .progress-detail {
+                color: #94a3b8;
+                font-size: 0.9rem;
+                font-style: italic;
+                margin-bottom: 1rem;
+            }
+            .progress-bar {
+                width: 100%;
+                height: 8px;
+                background: rgba(51, 65, 85, 0.6);
+                border-radius: 4px;
+                overflow: hidden;
+                margin-bottom: 1.5rem;
+            }
+            .progress-bar-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #667eea, #764ba2);
+                border-radius: 4px;
+                width: 0%;
+                transition: width 0.3s ease;
+                animation: shimmer 1.5s infinite;
+            }
+            @keyframes shimmer {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(100%); }
+            }
+            .loading-stats {
+                display: flex;
+                justify-content: space-between;
+                margin-top: 1rem;
+                padding-top: 1rem;
+                border-top: 1px solid rgba(148, 163, 184, 0.2);
+            }
+            .stat-item {
                 text-align: center;
-                margin: 0.5rem 0;
+            }
+            .stat-number {
+                color: #667eea;
+                font-size: 1.2rem;
+                font-weight: 700;
+                display: block;
+            }
+            .stat-label {
+                color: #94a3b8;
+                font-size: 0.8rem;
+                margin-top: 0.25rem;
+            }
+            .processing-steps {
+                list-style: none;
+                padding: 0;
+                margin: 1.5rem 0;
+                text-align: left;
+            }
+            .processing-steps li {
+                color: #94a3b8;
+                font-size: 0.9rem;
+                margin-bottom: 0.5rem;
+                padding-left: 1.5rem;
+                position: relative;
+            }
+            .processing-steps li::before {
+                content: '⏳';
+                position: absolute;
+                left: 0;
+                top: 0;
+            }
+            .processing-steps li.completed::before {
+                content: '✅';
+            }
+            .processing-steps li.active {
+                color: #e2e8f0;
+                font-weight: 600;
+            }
+            .processing-steps li.active::before {
+                content: '🔄';
+                animation: spin 1s linear infinite;
             }
         </style>
     </head>
@@ -374,84 +467,24 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
                 </p>
             </div>
 
-            <div class="teams-container">
-                <!-- Team 1 Section -->
-                <div class="team-section team-1">
-                    <div class="team-header">
-                        <div class="team-icon"></div>
-                        <h2 class="team-title">Team 1 ({{len .Team1Players}})</h2>
-                    </div>
-                    <div class="players-grid">
-                        {{range .Team1Players}}
-                        <div class="player-card" id="player-{{.SteamID}}">
-                            <div class="player-header">
-                                <div class="faceit-level" style="background: #6b7280;">-</div>
-                                <div class="player-info">
-                                    <div class="faceit-nickname loading-placeholder">Loading...</div>
-                                    <div class="steam-id">{{.SteamID}}</div>
-                                    <div class="faceit-elo"></div>
-                                </div>
-                            </div>
-                            <audio controls class="audio-controls">
-                                <source src="/output/{{.AudioFile}}" type="audio/wav">
-                                Your browser does not support the audio element.
-                            </audio>
+            <div class="players-container">
+                {{range .AllPlayers}}
+                <div class="player-card" id="player-{{.SteamID}}">
+                    <div class="player-header">
+                        <div class="faceit-level">
+                            <img id="level-img-{{.SteamID}}" src="/icons/faceit1.png" alt="Level" style="display: none;">
+                            <span id="level-text-{{.SteamID}}">-</span>
                         </div>
-                        {{end}}
-                    </div>
-                </div>
-
-                <!-- Team 2 Section -->
-                <div class="team-section team-2">
-                    <div class="team-header">
-                        <div class="team-icon"></div>
-                        <h2 class="team-title">Team 2 ({{len .Team2Players}})</h2>
-                    </div>
-                    <div class="players-grid">
-                        {{range .Team2Players}}
-                        <div class="player-card" id="player-{{.SteamID}}">
-                            <div class="player-header">
-                                <div class="faceit-level" style="background: #6b7280;">-</div>
-                                <div class="player-info">
-                                    <div class="faceit-nickname loading-placeholder">Loading...</div>
-                                    <div class="steam-id">{{.SteamID}}</div>
-                                    <div class="faceit-elo"></div>
-                                </div>
-                            </div>
-                            <audio controls class="audio-controls">
-                                <source src="/output/{{.AudioFile}}" type="audio/wav">
-                                Your browser does not support the audio element.
-                            </audio>
+                        <div class="player-info">
+                            <div class="faceit-nickname loading-placeholder">Loading...</div>
+                            <div class="steam-id">{{.SteamID}}</div>
+                            <div class="faceit-elo"></div>
                         </div>
-                        {{end}}
                     </div>
-                </div>
-
-                <!-- Unassigned Players Section -->
-                {{if .UnassignedPlayers}}
-                <div class="team-section unassigned" style="grid-column: 1 / -1;">
-                    <div class="team-header">
-                        <div class="team-icon"></div>
-                        <h2 class="team-title">Unassigned Players ({{len .UnassignedPlayers}})</h2>
-                    </div>
-                    <div class="players-grid" style="grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));">
-                        {{range .UnassignedPlayers}}
-                        <div class="player-card" id="player-{{.SteamID}}">
-                            <div class="player-header">
-                                <div class="faceit-level" style="background: #6b7280;">-</div>
-                                <div class="player-info">
-                                    <div class="faceit-nickname loading-placeholder">Loading...</div>
-                                    <div class="steam-id">{{.SteamID}}</div>
-                                    <div class="faceit-elo"></div>
-                                </div>
-                            </div>
-                            <audio controls class="audio-controls">
-                                <source src="/output/{{.AudioFile}}" type="audio/wav">
-                                Your browser does not support the audio element.
-                            </audio>
-                        </div>
-                        {{end}}
-                    </div>
+                    <audio controls class="audio-controls">
+                        <source src="/output/{{.AudioFile}}" type="audio/wav">
+                        Your browser does not support the audio element.
+                    </audio>
                 </div>
                 {{end}}
             </div>
@@ -465,20 +498,60 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 
         <!-- Processing overlay -->
         <div class="processing-overlay" id="processingOverlay">
-            <div class="spinner"></div>
-            <div class="progress-text">Processing demo file...</div>
-            <div class="progress-text" id="progressDetail">This may take a few minutes for large files</div>
+            <div class="loading-container">
+                <div class="spinner-container">
+                    <div class="spinner"></div>
+                </div>
+                
+                <div class="loading-title">Processing Demo</div>
+                
+                <div class="progress-text" id="mainProgress">Analyzing demo file...</div>
+                <div class="progress-detail" id="progressDetail">This may take a few minutes for large files</div>
+                
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" id="progressBarFill"></div>
+                </div>
+                
+                <ul class="processing-steps" id="processingSteps">
+                    <li id="step1">📁 Reading demo file</li>
+                    <li id="step2">🔍 Parsing game data</li>
+                    <li id="step3">🎤 Extracting voice data</li>
+                    <li id="step4">⚡ Parallel processing</li>
+                    <li id="step5">🎵 Generating audio files</li>
+                    <li id="step6">✨ Finalizing</li>
+                </ul>
+                
+                <div class="loading-stats">
+                    <div class="stat-item">
+                        <span class="stat-number" id="fileSize">0</span>
+                        <div class="stat-label">MB</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-number" id="elapsedTime">0</span>
+                        <div class="stat-label">Seconds</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-number" id="currentStep">1</span>
+                        <div class="stat-label">of 6</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <script>
-        function getLevelColor(level) {
-            const colors = {
-                1: '#EEE', 2: '#4CAF50', 3: '#8BC34A',
-                4: '#CDDC39', 5: '#FFC107', 6: '#FF9800',
-                7: '#FF5722', 8: '#F44336', 9: '#E91E63',
-                10: '#9C27B0'
-            };
-            return colors[level] || '#999';
+        function setFaceitLevel(playerCard, level) {
+            const levelImg = playerCard.querySelector('[id^="level-img-"]');
+            const levelText = playerCard.querySelector('[id^="level-text-"]');
+            
+            if (level >= 1 && level <= 10) {
+                levelImg.src = '/icons/faceit' + level + '.png';
+                levelImg.style.display = 'block';
+                levelText.style.display = 'none';
+            } else {
+                levelImg.style.display = 'none';
+                levelText.style.display = 'block';
+                levelText.textContent = '-';
+            }
         }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -492,35 +565,105 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
             uploadForm.addEventListener('submit', function(e) {
                 if (demoFileInput.files.length > 0) {
                     const fileSize = demoFileInput.files[0].size;
-                    const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
+                    const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(1);
 
                     processingOverlay.style.display = 'flex';
                     submitButton.disabled = true;
 
-                    progressDetail.textContent = "Processing " + fileSizeMB + " MB demo file. This may take " + (fileSizeMB > 100 ? "several minutes" : "a few minutes") + ".";
+                    // Initialize loading interface
+                    document.getElementById('fileSize').textContent = fileSizeMB;
+                    document.getElementById('elapsedTime').textContent = '0';
+                    document.getElementById('currentStep').textContent = '1';
+                    document.getElementById('progressBarFill').style.width = '0%';
 
-                    // Add status update every 5 seconds
-                    let seconds = 0;
-                    const processingTimer = setInterval(function() {
-                        seconds += 5;
-                        progressDetail.textContent = "Still processing... (" + seconds + "s elapsed)";
-                    }, 5000);
-
-                    // Store timer in sessionStorage so we can clear it if page reloads
-                    sessionStorage.setItem('processingTimer', processingTimer);
+                    // Start the processing animation
+                    startProcessingAnimation();
                 }
             });
+
+            function startProcessingAnimation() {
+                let currentStepIndex = 0;
+                let seconds = 0;
+                const steps = ['step1', 'step2', 'step3', 'step4', 'step5', 'step6'];
+                const stepMessages = [
+                    'Reading demo file...',
+                    'Parsing game events and data...',
+                    'Extracting voice communications...',
+                    'Processing with parallel optimization...',
+                    'Generating individual audio files...',
+                    'Finalizing and cleaning up...'
+                ];
+
+                function updateStep() {
+                    // Mark previous step as completed
+                    if (currentStepIndex > 0) {
+                        document.getElementById(steps[currentStepIndex - 1]).classList.remove('active');
+                        document.getElementById(steps[currentStepIndex - 1]).classList.add('completed');
+                    }
+
+                    // Mark current step as active
+                    if (currentStepIndex < steps.length) {
+                        document.getElementById(steps[currentStepIndex]).classList.add('active');
+                        document.getElementById('mainProgress').textContent = stepMessages[currentStepIndex];
+                        document.getElementById('currentStep').textContent = (currentStepIndex + 1).toString();
+                        
+                        // Update progress bar
+                        const progress = ((currentStepIndex + 1) / steps.length) * 100;
+                        document.getElementById('progressBarFill').style.width = progress + '%';
+                        
+                        currentStepIndex++;
+                    }
+                }
+
+                // Start with first step
+                updateStep();
+
+                // Update step every 8-15 seconds (randomized for realism)
+                const stepTimer = setInterval(function() {
+                    if (currentStepIndex < steps.length) {
+                        updateStep();
+                    } else {
+                        // All steps completed, show final messages
+                        document.getElementById('mainProgress').textContent = 'Almost done...';
+                        document.getElementById('progressDetail').textContent = 'Wrapping up the final details';
+                    }
+                }, Math.random() * 7000 + 8000); // 8-15 seconds
+
+                // Update elapsed time every second
+                const timeTimer = setInterval(function() {
+                    seconds++;
+                    document.getElementById('elapsedTime').textContent = seconds.toString();
+                    
+                    // Add some encouraging messages based on time
+                    if (seconds === 30) {
+                        document.getElementById('progressDetail').textContent = 'Processing is going well...';
+                    } else if (seconds === 60) {
+                        document.getElementById('progressDetail').textContent = 'Large demo files take more time, please be patient';
+                    } else if (seconds === 120) {
+                        document.getElementById('progressDetail').textContent = 'Still working hard on your demo...';
+                    }
+                }, 1000);
+
+                // Store timers in sessionStorage so we can clear them if page reloads
+                sessionStorage.setItem('stepTimer', stepTimer);
+                sessionStorage.setItem('timeTimer', timeTimer);
+            }
 
             // Check if we just came back from processing (page reload)
             if (sessionStorage.getItem('processing') === 'true') {
                 processingOverlay.style.display = 'none';
                 sessionStorage.removeItem('processing');
 
-                // Clear any existing timer
-                const oldTimer = sessionStorage.getItem('processingTimer');
-                if (oldTimer) {
-                    clearInterval(parseInt(oldTimer));
-                    sessionStorage.removeItem('processingTimer');
+                // Clear any existing timers
+                const oldStepTimer = sessionStorage.getItem('stepTimer');
+                const oldTimeTimer = sessionStorage.getItem('timeTimer');
+                if (oldStepTimer) {
+                    clearInterval(parseInt(oldStepTimer));
+                    sessionStorage.removeItem('stepTimer');
+                }
+                if (oldTimeTimer) {
+                    clearInterval(parseInt(oldTimeTimer));
+                    sessionStorage.removeItem('timeTimer');
                 }
             }
 
@@ -540,18 +683,21 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
                                 const nickname = player.nickname;
 
                                 playerCard.querySelector('.faceit-nickname').textContent = nickname;
-                                playerCard.querySelector('.faceit-level').textContent = level;
-                                playerCard.querySelector('.faceit-level').style.background = getLevelColor(level);
+                                playerCard.querySelector('.faceit-nickname').classList.remove('loading-placeholder');
+                                setFaceitLevel(playerCard, level);
                                 playerCard.querySelector('.faceit-elo').textContent = elo + ' ELO';
                             }
                         } else {
                             playerCard.querySelector('.faceit-nickname').textContent = 'Player not found';
-                            playerCard.querySelector('.faceit-level').textContent = '-';
+                            playerCard.querySelector('.faceit-nickname').classList.remove('loading-placeholder');
+                            setFaceitLevel(playerCard, 0); // Will show '-'
                         }
                     })
                     .catch(error => {
                         console.error('Error fetching player data:', error);
                         playerCard.querySelector('.faceit-nickname').textContent = 'Error loading data';
+                        playerCard.querySelector('.faceit-nickname').classList.remove('loading-placeholder');
+                        setFaceitLevel(playerCard, 0); // Will show '-'
                     });
             });
         });
@@ -564,40 +710,24 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 	currentDemoID := getCurrentDemoID(r)
 
 	var currentDemo *storage.DemoMetadata
-	var team1Players []api.PlayerInfo
-	var team2Players []api.PlayerInfo
-	var unassignedPlayers []api.PlayerInfo
+	var allPlayers []api.PlayerInfo
 
 	if currentDemoID != "" {
 		// Try to load metadata for this demo
 		metadata, err := metadataStore.LoadMetadata(currentDemoID)
 		if err == nil {
 			currentDemo = metadata
-
-			// Separate players by team
-			for _, player := range metadata.Players {
-				if player.Team == "Team 1" {
-					team1Players = append(team1Players, player)
-				} else if player.Team == "Team 2" {
-					team2Players = append(team2Players, player)
-				} else {
-					unassignedPlayers = append(unassignedPlayers, player)
-				}
-			}
+			allPlayers = metadata.Players
 		}
 	}
 
 	t := template.Must(template.New("home").Parse(tmpl))
 	t.Execute(w, struct {
-		CurrentDemo       *storage.DemoMetadata
-		Team1Players      []api.PlayerInfo
-		Team2Players      []api.PlayerInfo
-		UnassignedPlayers []api.PlayerInfo
+		CurrentDemo *storage.DemoMetadata
+		AllPlayers  []api.PlayerInfo
 	}{
-		CurrentDemo:       currentDemo,
-		Team1Players:      team1Players,
-		Team2Players:      team2Players,
-		UnassignedPlayers: unassignedPlayers,
+		CurrentDemo: currentDemo,
+		AllPlayers:  allPlayers,
 	})
 }
 
