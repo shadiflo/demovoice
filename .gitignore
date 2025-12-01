@@ -32,3 +32,6 @@ Thumbs.db
 vendor/
 # cameras
 cameras.m3u
+
+# Environment variables
+.env

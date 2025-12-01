@@ -61,12 +61,17 @@ func (s *MetadataStore) SaveMetadata(demoID, filename string) (*DemoMetadata, er
 	// Log for debugging
 	log.Printf("Found %d player voices for demo ID %s", len(players), demoID)
 
+	// Extract match ID from filename if possible
+	// Format: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52-1-1.dem
+	matchID := extractMatchIDFromFilename(filename)
+
 	// Save metadata as JSON
 	metadata := DemoMetadata{
 		DemoID:     demoID,
 		Filename:   filename,
 		Players:    players,
 		UploadTime: time.Now(),
+		MatchID:    matchID,
 	}
 
 	metadataBytes, err := json.Marshal(metadata)
@@ -171,4 +176,24 @@ func (s *MetadataStore) UpdateMetadata(metadata *DemoMetadata) error {
 
 	metadataPath := filepath.Join(s.OutputDir, metadata.DemoID+".json")
 	return os.WriteFile(metadataPath, metadataBytes, 0644)
+}
+
+// extractMatchIDFromFilename extracts the Faceit match ID from a demo filename
+// Format: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52-1-1.dem
+// Returns: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52
+func extractMatchIDFromFilename(filename string) string {
+	// Remove .dem extension
+	name := strings.TrimSuffix(filename, ".dem")
+
+	// Split by '-'
+	parts := strings.Split(name, "-")
+
+	// Faceit match IDs have format: 1-UUID
+	// UUID has 5 parts separated by hyphens
+	if len(parts) >= 6 {
+		// Reconstruct: parts[0]-parts[1]-parts[2]-parts[3]-parts[4]
+		return strings.Join(parts[0:6], "-")
+	}
+
+	return ""
 }
