@@ -82,6 +82,12 @@
             transform: translateY(-2px);
             box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
         }
+        .btn-primary:disabled {
+            background: rgba(102, 126, 234, 0.5);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
         .match-info {
             background: rgba(30, 41, 59, 0.6);
             border: 1px solid rgba(148, 163, 184, 0.1);
@@ -943,6 +949,30 @@
     setTimeout(initializeAudioPlayers, 500);
 
     {{end}}
+
+    // Upload form handler - show loading during upload and processing
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+        const fileInput = document.getElementById('demoFile');
+        const file = fileInput.files[0];
+
+        if (file) {
+            const modal = document.getElementById('loadingModal');
+            const loadingText = modal.querySelector('.loading-text');
+
+            // Show loading modal
+            modal.classList.add('active');
+            loadingText.textContent = 'Uploading demo file...';
+
+            // Update text after 2 seconds
+            setTimeout(() => {
+                loadingText.textContent = 'Processing demo and extracting voice data...';
+            }, 2000);
+
+            // Disable submit button
+            document.getElementById('submitButton').disabled = true;
+            document.getElementById('submitButton').textContent = 'Processing...';
+        }
+    });
     </script>
 </body>
 </html>
