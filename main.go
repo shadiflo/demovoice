@@ -45,14 +45,19 @@ func init() {
 	os.MkdirAll(uploadDir, 0755)
 	os.MkdirAll(outputDir, 0755)
 
-	// Get Faceit API key from environment
+	// Get Faceit API keys from environment
 	faceitAPIKey := os.Getenv("FACEIT_API_KEY")
 	if faceitAPIKey == "" {
 		log.Printf("Warning: FACEIT_API_KEY not set in .env file")
 	}
 
+	faceitDownloadAPIKey := os.Getenv("FACEIT_DOWNLOAD_API_KEY")
+	if faceitDownloadAPIKey == "" {
+		log.Printf("Warning: FACEIT_DOWNLOAD_API_KEY not set in .env file - demo download from URLs will not work")
+	}
+
 	// Initialize clients
-	faceitClient = api.NewFaceitClient(faceitAPIKey)
+	faceitClient = api.NewFaceitClient(faceitAPIKey, faceitDownloadAPIKey)
 	matchClient = api.NewMatchClient()
 	metadataStore = storage.NewMetadataStore(outputDir)
 
@@ -70,6 +75,7 @@ func main() {
 	// Handle routes (removed password auth)
 	http.HandleFunc("/", handleHome)
 	http.HandleFunc("/upload", handleUpload)
+	http.HandleFunc("/download-from-url", handleDownloadFromURL)
 	http.HandleFunc("/faceit/player", handleFaceitPlayer)
 	http.HandleFunc("/faceit/match", handleFaceitMatch)
 	http.Handle("/output/", http.StripPrefix("/output/", http.FileServer(http.Dir(outputDir))))
@@ -237,6 +243,115 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect back to home page
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func handleDownloadFromURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get the matchroom URL from form
+	matchroomURL := r.FormValue("matchroom_url")
+	if matchroomURL == "" {
+		http.Error(w, "Matchroom URL is required", http.StatusBadRequest)
+		return
+	}
+
+	// Extract match ID from URL
+	// URL format: https://www.faceit.com/en/cs2/room/1-MATCH_ID
+	matchID := extractMatchIDFromURL(matchroomURL)
+	if matchID == "" {
+		http.Error(w, "Invalid matchroom URL format", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("Downloading demo for match ID: %s", matchID)
+
+	// Create a unique demo ID
+	demoID := fmt.Sprintf("demo_%d", time.Now().UnixNano())
+
+	// Download the demo file (CS2 demos are .dem.zst compressed)
+	demoPath := filepath.Join(uploadDir, fmt.Sprintf("%s.dem.zst", matchID))
+	err := faceitClient.DownloadDemo(matchID, demoPath)
+	if err != nil {
+		log.Printf("Error downloading demo: %v", err)
+		http.Error(w, "Error downloading demo: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Demo downloaded successfully to: %s", demoPath)
+
+	// Register the downloaded demo for cleanup
+	registerUploadedDemo(fmt.Sprintf("%s.dem.zst", matchID))
+
+	// Process the demo file
+	err = ProcessDemo(demoPath, demoID)
+	if err != nil {
+		log.Printf("Error processing demo: %v", err)
+		http.Error(w, "Error processing demo: "+err.Error(), http.StatusInternalServerError)
+		// Clean up the downloaded file
+		os.Remove(demoPath)
+		return
+	}
+
+	// Save demo metadata
+	metadata, err := metadataStore.SaveMetadata(demoID, matchID+".dem.zst")
+	if err != nil {
+		log.Printf("Warning: Failed to save metadata: %v", err)
+	} else {
+		// Store the match ID in metadata for reference
+		metadata.MatchID = matchID
+
+		// Register all generated audio files as temporary
+		for _, player := range metadata.Players {
+			registerTempFile(player.AudioFile)
+		}
+
+		// Also register the metadata file itself
+		registerTempFile(demoID + ".json")
+	}
+
+	// Set a cookie to remember which demo was downloaded
+	http.SetCookie(w, &http.Cookie{
+		Name:    "current_demo_id",
+		Value:   demoID,
+		Path:    "/",
+		Expires: time.Now().Add(24 * time.Hour),
+	})
+
+	log.Printf("Demo processing complete for match: %s", matchID)
+
+	// Redirect back to home page
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// extractMatchIDFromURL extracts the match ID from a Faceit matchroom URL
+// Supports formats like:
+// - https://www.faceit.com/en/cs2/room/1-MATCH_ID
+// - https://www.faceit.com/en/cs2/room/1-MATCH_ID/scoreboard
+func extractMatchIDFromURL(url string) string {
+	// Remove trailing slashes
+	url = strings.TrimRight(url, "/")
+
+	// Split by "room/"
+	parts := strings.Split(url, "room/")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	// Get the part after "room/"
+	roomPart := parts[1]
+
+	// Remove any path after the match ID (like /scoreboard)
+	roomPart = strings.Split(roomPart, "/")[0]
+
+	// The format is "1-MATCH_ID", so we need to remove the "1-" prefix
+	if strings.HasPrefix(roomPart, "1-") {
+		return strings.TrimPrefix(roomPart, "1-")
+	}
+
+	return roomPart
 }
 
 // startTempFileCleanup runs a background goroutine that deletes old temporary files
