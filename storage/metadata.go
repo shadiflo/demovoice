@@ -18,13 +18,15 @@ type MetadataStore struct {
 
 // DemoMetadata contains metadata about a processed demo file
 type DemoMetadata struct {
-	DemoID      string           `json:"demo_id"`
-	Filename    string           `json:"filename"`
-	Players     []api.PlayerInfo `json:"players"`
-	UploadTime  time.Time        `json:"upload_time"`
-	MatchID     string           `json:"match_id,omitempty"`
-	Map         string           `json:"map,omitempty"`
-	Competition string           `json:"competition,omitempty"`
+	DemoID        string           `json:"demo_id"`
+	Filename      string           `json:"filename"`
+	Status        string           `json:"status"` // "processing", "completed", "failed"
+	Players       []api.PlayerInfo `json:"players"`
+	UploadTime    time.Time        `json:"upload_time"`
+	MatchID       string           `json:"match_id,omitempty"`
+	Map           string           `json:"map,omitempty"`
+	Competition   string           `json:"competition,omitempty"`
+	MatchDataJSON string           `json:"match_data_json,omitempty"` // Cached match data for faster loading
 }
 
 // NewMetadataStore creates a new metadata store
@@ -72,6 +74,7 @@ func (s *MetadataStore) SaveMetadata(demoID, filename string) (*DemoMetadata, er
 		Players:    players,
 		UploadTime: time.Now(),
 		MatchID:    matchID,
+		Status:     "completed",
 	}
 
 	metadataBytes, err := json.Marshal(metadata)
@@ -179,19 +182,20 @@ func (s *MetadataStore) UpdateMetadata(metadata *DemoMetadata) error {
 }
 
 // extractMatchIDFromFilename extracts the Faceit match ID from a demo filename
-// Format: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52-1-1.dem
+// Format: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52-1-1.dem or 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52.dem.zst
 // Returns: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52
 func extractMatchIDFromFilename(filename string) string {
-	// Remove .dem extension
-	name := strings.TrimSuffix(filename, ".dem")
+	// Remove various extensions
+	name := strings.TrimSuffix(filename, ".dem.zst")
+	name = strings.TrimSuffix(name, ".dem")
 
 	// Split by '-'
 	parts := strings.Split(name, "-")
 
-	// Faceit match IDs have format: 1-UUID
-	// UUID has 5 parts separated by hyphens
+	// Faceit match IDs have format: 1-UUID (UUID has 5 parts separated by hyphens)
+	// So full match ID is: 1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (6 parts total)
 	if len(parts) >= 6 {
-		// Reconstruct: parts[0]-parts[1]-parts[2]-parts[3]-parts[4]
+		// Return full match ID with "1-" prefix: 1-uuid-parts
 		return strings.Join(parts[0:6], "-")
 	}
 

@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	uploadDir = "./uploads"
-	outputDir = "./output"
+	uploadDir        = "./uploads"
+	outputDir        = "./output"
 	tempFileLifetime = 5 * time.Minute // Files will be deleted after 5 minutes
 )
 
@@ -78,6 +78,7 @@ func main() {
 	http.HandleFunc("/download-from-url", handleDownloadFromURL)
 	http.HandleFunc("/faceit/player", handleFaceitPlayer)
 	http.HandleFunc("/faceit/match", handleFaceitMatch)
+	http.HandleFunc("/status", handleStatus)
 	http.Handle("/output/", http.StripPrefix("/output/", http.FileServer(http.Dir(outputDir))))
 	http.Handle("/icons/", http.StripPrefix("/icons/", http.FileServer(http.Dir("./icons"))))
 
@@ -129,12 +130,53 @@ func handleFaceitMatch(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// StatusResponse contains the current status of a demo
+type StatusResponse struct {
+	Status  string           `json:"status"`
+	DemoID  string           `json:"demo_id"`
+	MatchID string           `json:"match_id"`
+	Players []api.PlayerInfo `json:"players"`
+}
+
+func handleStatus(w http.ResponseWriter, r *http.Request) {
+	demoID := r.URL.Query().Get("demo_id")
+	if demoID == "" {
+		// Try to get from cookie
+		demoCookie, err := r.Cookie("current_demo_id")
+		if err != nil {
+			http.Error(w, "Demo ID is required", http.StatusBadRequest)
+			return
+		}
+		demoID = demoCookie.Value
+	}
+
+	metadata, err := metadataStore.LoadMetadata(demoID)
+	if err != nil {
+		// Demo not found or still initializing
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(StatusResponse{
+			Status: "initializing",
+			DemoID: demoID,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(StatusResponse{
+		Status:  metadata.Status,
+		DemoID:  metadata.DemoID,
+		MatchID: metadata.MatchID,
+		Players: metadata.Players,
+	})
+}
+
 func handleHome(w http.ResponseWriter, r *http.Request) {
 	// Get current demo ID from session
 	currentDemoID := getCurrentDemoID(r)
 
 	var currentDemo *storage.DemoMetadata
 	var playersJSON string
+	var cachedMatchData string
 
 	if currentDemoID != "" {
 		// Try to load metadata for this demo
@@ -144,6 +186,8 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 			// Convert players to JSON for JavaScript
 			playersBytes, _ := json.Marshal(metadata.Players)
 			playersJSON = string(playersBytes)
+			// Pass cached match data if available
+			cachedMatchData = metadata.MatchDataJSON
 		}
 	}
 
@@ -156,11 +200,13 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tmpl.Execute(w, struct {
-		CurrentDemo *storage.DemoMetadata
-		PlayersJSON template.JS
+		CurrentDemo     *storage.DemoMetadata
+		PlayersJSON     template.JS
+		CachedMatchData template.JS
 	}{
-		CurrentDemo: currentDemo,
-		PlayersJSON: template.JS(playersJSON),
+		CurrentDemo:     currentDemo,
+		PlayersJSON:     template.JS(playersJSON),
+		CachedMatchData: template.JS(cachedMatchData),
 	})
 }
 
@@ -187,7 +233,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Create a unique ID for this demo upload (using a simple timestamp)
+	// Create a unique ID for this demo upload
 	demoID := fmt.Sprintf("demo_%d", time.Now().UnixNano())
 
 	// Create temporary file for processing
@@ -206,31 +252,19 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Register uploaded demo for cleanup
-	registerUploadedDemo(header.Filename)
-
-	// Process the demo file with the demo ID
-	err = ProcessDemo(tempPath, demoID)
-	if err != nil {
-		http.Error(w, "Error processing demo: "+err.Error(), http.StatusInternalServerError)
-		return
+	// Create initial metadata with "processing" status
+	initialMetadata := &storage.DemoMetadata{
+		DemoID:     demoID,
+		Filename:   header.Filename,
+		Status:     "processing",
+		UploadTime: time.Now(),
+		Players:    []api.PlayerInfo{},
 	}
+	metadataStore.UpdateMetadata(initialMetadata)
+	// Also register the metadata file so it gets cleaned up
+	registerTempFile(demoID + ".json")
 
-	// Save demo metadata using our new metadata store
-	metadata, err := metadataStore.SaveMetadata(demoID, header.Filename)
-	if err != nil {
-		log.Printf("Warning: Failed to save metadata: %v", err)
-	} else {
-		// Register all generated audio files as temporary
-		for _, player := range metadata.Players {
-			registerTempFile(player.AudioFile)
-		}
-		
-		// Also register the metadata file itself
-		registerTempFile(demoID + ".json")
-	}
-
-	// Set a cookie to remember which demo was uploaded
+	// Set cookie immediately
 	http.SetCookie(w, &http.Cookie{
 		Name:    "current_demo_id",
 		Value:   demoID,
@@ -238,10 +272,54 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		Expires: time.Now().Add(24 * time.Hour),
 	})
 
-	// Clean up
-	os.Remove(tempPath)
+	// Process in background
+	go func() {
+		// Register uploaded demo for cleanup
+		registerUploadedDemo(header.Filename)
 
-	// Redirect back to home page
+		// Process the demo file
+		playerTeams, err := ProcessDemo(tempPath, demoID)
+		if err != nil {
+			log.Printf("Error processing demo %s: %v", demoID, err)
+			// Update status to failed
+			initialMetadata, _ := metadataStore.LoadMetadata(demoID)
+			if initialMetadata != nil {
+				initialMetadata.Status = "failed"
+				metadataStore.UpdateMetadata(initialMetadata)
+			}
+			return
+		}
+
+		// Save demo metadata (scans files and populates players)
+		// This will set Status to "completed" as per our change in metadata.go
+		metadata, err := metadataStore.SaveMetadata(demoID, header.Filename)
+		if err != nil {
+			log.Printf("Warning: Failed to save metadata: %v", err)
+		} else {
+			// Save team information now that metadata exists
+			saveTeamMetadata(demoID, playerTeams)
+
+			// Enrich player data with Faceit information (nickname, ELO, level)
+			for i := range metadata.Players {
+				if err := faceitClient.EnrichPlayerInfo(&metadata.Players[i]); err != nil {
+					log.Printf("Warning: Failed to enrich player %s: %v", metadata.Players[i].SteamID, err)
+				}
+			}
+
+			// Save enriched metadata
+			metadataStore.UpdateMetadata(metadata)
+
+			// Register all generated audio files as temporary
+			for _, player := range metadata.Players {
+				registerTempFile(player.AudioFile)
+			}
+		}
+
+		// Clean up uploaded file
+		os.Remove(tempPath)
+	}()
+
+	// Redirect back to home page immediately
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -259,60 +337,43 @@ func handleDownloadFromURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract match ID from URL
-	// URL format: https://www.faceit.com/en/cs2/room/1-MATCH_ID
 	matchID := extractMatchIDFromURL(matchroomURL)
 	if matchID == "" {
 		http.Error(w, "Invalid matchroom URL format", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("Downloading demo for match ID: %s", matchID)
+	log.Printf("Starting async download for match ID: %s", matchID)
 
 	// Create a unique demo ID
 	demoID := fmt.Sprintf("demo_%d", time.Now().UnixNano())
+	demoFilename := fmt.Sprintf("%s.dem.zst", matchID)
 
-	// Download the demo file (CS2 demos are .dem.zst compressed)
-	demoPath := filepath.Join(uploadDir, fmt.Sprintf("%s.dem.zst", matchID))
-	err := faceitClient.DownloadDemo(matchID, demoPath)
+	// Fetch match data immediately for faster UI loading
+	var matchDataJSON string
+	matchData, err := faceitClient.GetMatchData(matchID)
 	if err != nil {
-		log.Printf("Error downloading demo: %v", err)
-		http.Error(w, "Error downloading demo: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("Demo downloaded successfully to: %s", demoPath)
-
-	// Register the downloaded demo for cleanup
-	registerUploadedDemo(fmt.Sprintf("%s.dem.zst", matchID))
-
-	// Process the demo file
-	err = ProcessDemo(demoPath, demoID)
-	if err != nil {
-		log.Printf("Error processing demo: %v", err)
-		http.Error(w, "Error processing demo: "+err.Error(), http.StatusInternalServerError)
-		// Clean up the downloaded file
-		os.Remove(demoPath)
-		return
-	}
-
-	// Save demo metadata
-	metadata, err := metadataStore.SaveMetadata(demoID, matchID+".dem.zst")
-	if err != nil {
-		log.Printf("Warning: Failed to save metadata: %v", err)
+		log.Printf("Warning: Could not prefetch match data: %v", err)
 	} else {
-		// Store the match ID in metadata for reference
-		metadata.MatchID = matchID
-
-		// Register all generated audio files as temporary
-		for _, player := range metadata.Players {
-			registerTempFile(player.AudioFile)
-		}
-
-		// Also register the metadata file itself
-		registerTempFile(demoID + ".json")
+		matchDataBytes, _ := json.Marshal(matchData)
+		matchDataJSON = string(matchDataBytes)
+		log.Printf("Prefetched match data for faster loading")
 	}
 
-	// Set a cookie to remember which demo was downloaded
+	// Create initial metadata with "processing" status and cached match data
+	initialMetadata := &storage.DemoMetadata{
+		DemoID:        demoID,
+		MatchID:       matchID,
+		Filename:      demoFilename,
+		Status:        "processing",
+		UploadTime:    time.Now(),
+		Players:       []api.PlayerInfo{},
+		MatchDataJSON: matchDataJSON,
+	}
+	metadataStore.UpdateMetadata(initialMetadata)
+	registerTempFile(demoID + ".json")
+
+	// Set cookie immediately
 	http.SetCookie(w, &http.Cookie{
 		Name:    "current_demo_id",
 		Value:   demoID,
@@ -320,16 +381,74 @@ func handleDownloadFromURL(w http.ResponseWriter, r *http.Request) {
 		Expires: time.Now().Add(24 * time.Hour),
 	})
 
-	log.Printf("Demo processing complete for match: %s", matchID)
+	// Process in background
+	go func() {
+		// Download the demo file
+		demoPath := filepath.Join(uploadDir, demoFilename)
+		err := faceitClient.DownloadDemo(matchID, demoPath)
+		if err != nil {
+			log.Printf("Error downloading demo %s: %v", matchID, err)
+			// Update status to failed
+			initialMetadata.Status = "failed"
+			metadataStore.UpdateMetadata(initialMetadata)
+			return
+		}
 
-	// Redirect back to home page
+		log.Printf("Demo downloaded successfully to: %s", demoPath)
+
+		// Register the downloaded demo for cleanup
+		registerUploadedDemo(demoFilename)
+
+		// Process the demo file
+		playerTeams, err := ProcessDemo(demoPath, demoID)
+		if err != nil {
+			log.Printf("Error processing demo: %v", err)
+			// Update status to failed
+			initialMetadata.Status = "failed"
+			metadataStore.UpdateMetadata(initialMetadata)
+			// Clean up the downloaded file
+			os.Remove(demoPath)
+			return
+		}
+
+		// Save demo metadata
+		metadata, err := metadataStore.SaveMetadata(demoID, demoFilename)
+		if err != nil {
+			log.Printf("Warning: Failed to save metadata: %v", err)
+		} else {
+			// Restore MatchID if missing (though Filename should have it)
+			if metadata.MatchID == "" {
+				metadata.MatchID = matchID
+				metadataStore.UpdateMetadata(metadata)
+			}
+
+			// Save team information now that metadata exists
+			saveTeamMetadata(demoID, playerTeams)
+
+			// Enrich player data with Faceit information (nickname, ELO, level)
+			for i := range metadata.Players {
+				if err := faceitClient.EnrichPlayerInfo(&metadata.Players[i]); err != nil {
+					log.Printf("Warning: Failed to enrich player %s: %v", metadata.Players[i].SteamID, err)
+				}
+			}
+
+			// Save enriched metadata
+			metadataStore.UpdateMetadata(metadata)
+
+			// Register all generated audio files as temporary
+			for _, player := range metadata.Players {
+				registerTempFile(player.AudioFile)
+			}
+		}
+
+		log.Printf("Demo processing complete for match: %s", matchID)
+	}()
+
+	// Redirect back to home page immediately
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // extractMatchIDFromURL extracts the match ID from a Faceit matchroom URL
-// Supports formats like:
-// - https://www.faceit.com/en/cs2/room/1-MATCH_ID
-// - https://www.faceit.com/en/cs2/room/1-MATCH_ID/scoreboard
 func extractMatchIDFromURL(url string) string {
 	// Remove trailing slashes
 	url = strings.TrimRight(url, "/")
@@ -346,11 +465,7 @@ func extractMatchIDFromURL(url string) string {
 	// Remove any path after the match ID (like /scoreboard)
 	roomPart = strings.Split(roomPart, "/")[0]
 
-	// The format is "1-MATCH_ID", so we need to remove the "1-" prefix
-	if strings.HasPrefix(roomPart, "1-") {
-		return strings.TrimPrefix(roomPart, "1-")
-	}
-
+	// Return full match ID including the "1-" prefix - Faceit API needs it
 	return roomPart
 }
 
@@ -376,7 +491,7 @@ func cleanupExpiredFiles() {
 	for filename, creationTime := range tempFiles {
 		if now.Sub(creationTime) > tempFileLifetime {
 			filePath := filepath.Join(outputDir, filename)
-			
+
 			// Delete the audio file
 			if err := os.Remove(filePath); err != nil {
 				log.Printf("Warning: Failed to delete temporary file %s: %v", filename, err)
