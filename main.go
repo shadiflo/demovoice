@@ -299,10 +299,32 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 			// Save team information now that metadata exists
 			saveTeamMetadata(demoID, playerTeams)
 
+			// Try to fetch match data first if we have a match ID
+			var matchData *api.MatchResponse
+			if metadata.MatchID != "" {
+				log.Printf("Fetching match data for uploaded demo with match ID: %s", metadata.MatchID)
+				md, err := faceitClient.GetMatchData(metadata.MatchID)
+				if err == nil {
+					matchData = md
+					// Update MatchDataJSON
+					matchDataBytes, _ := json.Marshal(matchData)
+					metadata.MatchDataJSON = string(matchDataBytes)
+					log.Printf("Successfully enriched uploaded demo with match data")
+
+					// Use match data to enrich players
+					metadata.Players = faceitClient.EnrichPlayersFromMatch(metadata.Players, matchData)
+				} else {
+					log.Printf("Warning: Failed to fetch match data for uploaded demo: %v", err)
+				}
+			}
+
 			// Enrich player data with Faceit information (nickname, ELO, level)
+			// Fallback to individual API calls if nickname is still missing
 			for i := range metadata.Players {
-				if err := faceitClient.EnrichPlayerInfo(&metadata.Players[i]); err != nil {
-					log.Printf("Warning: Failed to enrich player %s: %v", metadata.Players[i].SteamID, err)
+				if metadata.Players[i].Nickname == "" {
+					if err := faceitClient.EnrichPlayerInfo(&metadata.Players[i]); err != nil {
+						log.Printf("Warning: Failed to enrich player %s: %v", metadata.Players[i].SteamID, err)
+					}
 				}
 			}
 
@@ -426,9 +448,16 @@ func handleDownloadFromURL(w http.ResponseWriter, r *http.Request) {
 			saveTeamMetadata(demoID, playerTeams)
 
 			// Enrich player data with Faceit information (nickname, ELO, level)
+			// Use existing matchData if available
+			if matchData != nil {
+				metadata.Players = faceitClient.EnrichPlayersFromMatch(metadata.Players, matchData)
+			}
+
 			for i := range metadata.Players {
-				if err := faceitClient.EnrichPlayerInfo(&metadata.Players[i]); err != nil {
-					log.Printf("Warning: Failed to enrich player %s: %v", metadata.Players[i].SteamID, err)
+				if metadata.Players[i].Nickname == "" {
+					if err := faceitClient.EnrichPlayerInfo(&metadata.Players[i]); err != nil {
+						log.Printf("Warning: Failed to enrich player %s: %v", metadata.Players[i].SteamID, err)
+					}
 				}
 			}
 

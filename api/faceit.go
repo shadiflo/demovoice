@@ -12,10 +12,10 @@ import (
 
 // FaceitClient handles all API calls to the Faceit API
 type FaceitClient struct {
-	httpClient       *http.Client
-	downloadClient   *http.Client // Separate client with longer timeout for downloads
-	apiKey           string
-	downloadAPIKey   string
+	httpClient     *http.Client
+	downloadClient *http.Client // Separate client with longer timeout for downloads
+	apiKey         string
+	downloadAPIKey string
 }
 
 // PlayerInfo contains information about a player
@@ -31,16 +31,11 @@ type PlayerInfo struct {
 
 // FaceitResponse represents the response from the Faceit API
 type FaceitResponse struct {
-	Payload []struct {
-		Nickname string `json:"nickname"`
-		Games    struct {
-			CS2 struct {
-				SkillLevel int    `json:"skill_level"`
-				FaceitElo  int    `json:"faceit_elo"`
-				GameName   string `json:"game_name"`
-			} `json:"cs2"`
-		} `json:"games"`
-	} `json:"payload"`
+	Nickname string `json:"nickname"`
+	Games    map[string]struct {
+		SkillLevel int `json:"skill_level"`
+		FaceitElo  int `json:"faceit_elo"`
+	} `json:"games"`
 }
 
 // NewFaceitClient creates a new Faceit API client
@@ -59,13 +54,30 @@ func NewFaceitClient(apiKey string, downloadAPIKey string) *FaceitClient {
 
 // GetPlayerInfo fetches player information from the Faceit API
 func (c *FaceitClient) GetPlayerInfo(steamID string) (*FaceitResponse, error) {
-	url := fmt.Sprintf("https://www.faceit.com/api/users/v1/users?game=cs2&game_id=%s", steamID)
+	// Use Open API v4
+	url := fmt.Sprintf("https://open.faceit.com/data/v4/players?game=cs2&game_player_id=%s", steamID)
 
-	resp, err := c.httpClient.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call faceit API: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("player not found")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("faceit API returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
 
 	var result FaceitResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -82,13 +94,51 @@ func (c *FaceitClient) EnrichPlayerInfo(player *PlayerInfo) error {
 		return err
 	}
 
-	if len(resp.Payload) > 0 {
-		player.Nickname = resp.Payload[0].Nickname
-		player.FaceitLevel = resp.Payload[0].Games.CS2.SkillLevel
-		player.FaceitElo = resp.Payload[0].Games.CS2.FaceitElo
+	player.Nickname = resp.Nickname
+	if cs2, ok := resp.Games["cs2"]; ok {
+		player.FaceitLevel = cs2.SkillLevel
+		player.FaceitElo = cs2.FaceitElo
 	}
 
 	return nil
+}
+
+// EnrichPlayersFromMatch updates a list of players with information from the match data
+func (c *FaceitClient) EnrichPlayersFromMatch(players []PlayerInfo, matchData *MatchResponse) []PlayerInfo {
+	// Create map of GameID (SteamID) -> MatchPlayer
+	playerMap := make(map[string]MatchPlayer)
+
+	// Add faction 1 players
+	for _, p := range matchData.Payload.Teams.Faction1.Roster {
+		playerMap[p.GameID] = p
+		// fmt.Printf("🔍 DEBUG: Added mapping %s -> %s\n", p.GameID, p.Nickname)
+	}
+	// Add faction 2 players
+	for _, p := range matchData.Payload.Teams.Faction2.Roster {
+		playerMap[p.GameID] = p
+		// fmt.Printf("🔍 DEBUG: Added mapping %s -> %s\n", p.GameID, p.Nickname)
+	}
+
+	fmt.Printf("🔍 DEBUG: EnrichPlayersFromMatch - Map has %d players\n", len(playerMap))
+
+	// Update players
+	count := 0
+	for i := range players {
+		// fmt.Printf("🔍 DEBUG: Looking for SteamID: %s\n", players[i].SteamID)
+		if matchPlayer, ok := playerMap[players[i].SteamID]; ok {
+			// Only update if we have a nickname
+			if matchPlayer.Nickname != "" {
+				players[i].Nickname = matchPlayer.Nickname
+				players[i].FaceitLevel = matchPlayer.GameSkillLevel
+				players[i].FaceitElo = matchPlayer.Elo
+				count++
+			}
+		} else {
+			fmt.Printf("⚠️ DEBUG: SteamID %s not found in match roster\n", players[i].SteamID)
+		}
+	}
+	fmt.Printf("🔍 DEBUG: Enriched %d/%d players from match data\n", count, len(players))
+	return players
 }
 
 // MatchPlayer represents a player in a match roster
@@ -128,17 +178,18 @@ type MatchResponse struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Payload struct {
-		ID           string   `json:"id"`
-		Type         string   `json:"type"`
-		Game         string   `json:"game"`
-		Region       string   `json:"region"`
-		OrganizerID  string   `json:"organizerId"`
-		DemoURL      []string `json:"demoUrl"` // Added demo URLs
+		ID          string   `json:"id"`
+		Type        string   `json:"type"`
+		Game        string   `json:"game"`
+		Region      string   `json:"region"`
+		OrganizerID string   `json:"organizerId"`
+		DemoURL     []string `json:"demoUrl"` // Added demo URLs
+		Teams       struct {
+			Faction1 MatchTeam `json:"faction1"`
+			Faction2 MatchTeam `json:"faction2"`
+		} `json:"teams"`
 		EntityCustom struct {
-			Teams struct {
-				Faction1 MatchTeam `json:"faction1"`
-				Faction2 MatchTeam `json:"faction2"`
-			} `json:"teams"`
+			// Teams removed from here as they are directly under payload
 		} `json:"entityCustom"`
 	} `json:"payload"`
 }
