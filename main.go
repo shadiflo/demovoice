@@ -18,11 +18,20 @@ import (
 	"github.com/joho/godotenv"
 )
 
-const (
-	uploadDir        = "./uploads"
-	outputDir        = "./output"
+var (
+	uploadDir        string
+	outputDir        string
 	tempFileLifetime = 5 * time.Minute // Files will be deleted after 5 minutes
 )
+
+func getExecutableDir() string {
+	ex, err := os.Executable()
+	if err != nil {
+		log.Printf("Warning: Could not get executable path, using current directory: %v", err)
+		return "."
+	}
+	return filepath.Dir(ex)
+}
 
 // Initialize global clients
 var (
@@ -36,9 +45,19 @@ var (
 )
 
 func init() {
-	// Load .env file
-	if err := godotenv.Load(); err != nil {
-		log.Printf("Warning: Error loading .env file: %v", err)
+	// Get the directory where the executable is located
+	execDir := getExecutableDir()
+	uploadDir = filepath.Join(execDir, "uploads")
+	outputDir = filepath.Join(execDir, "output")
+
+	log.Printf("Working directory: %s", execDir)
+	log.Printf("Upload directory: %s", uploadDir)
+	log.Printf("Output directory: %s", outputDir)
+
+	// Load .env file from executable directory
+	envPath := filepath.Join(execDir, ".env")
+	if err := godotenv.Load(envPath); err != nil {
+		log.Printf("Warning: Error loading .env file from %s: %v", envPath, err)
 	}
 
 	// Create required directories
