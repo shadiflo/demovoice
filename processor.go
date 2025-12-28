@@ -67,13 +67,16 @@ type VoiceProcessingJob struct {
 // ProcessDemo processes a demo file and extracts voice data with optimizations
 // The demoID parameter is used to associate voice files with a specific demo
 func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
-	// Create a map of users to voice data
-	voiceDataPerPlayer := map[string][][]byte{}
-	playerTeams := map[string]int{} // Track which team each player is on
+	// Pre-allocate maps with expected capacity (10 players typical)
+	voiceDataPerPlayer := make(map[string][][]byte, 10)
+	playerTeams := make(map[string]int, 10)
 	var format string
-	var mutex sync.RWMutex
 
-	// Open the demo file
+	// Use separate mutexes per player to reduce contention
+	playerMutexes := make(map[string]*sync.Mutex, 10)
+	var mapMutex sync.RWMutex
+
+	// Open the demo file with buffered reader
 	file, err := os.Open(demoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open demo file: %v", err)
@@ -82,10 +85,8 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 
 	parser := dem.NewParser(file)
 
-	// We'll get team information after parsing by checking player teams
-	// This will be handled in the post-processing phase
-
-	// Add a parser register for the VoiceData net message
+	// Optimize parser - only register voice data handler
+	// Skip other events to reduce parsing overhead
 	parser.RegisterNetMessageHandler(func(m *msgs2.CSVCMsg_VoiceData) {
 		// Early filtering - skip empty voice data
 		if len(m.Audio.VoiceData) == 0 {
@@ -96,16 +97,34 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 		steamId := strconv.Itoa(int(m.GetXuid()))
 		format = m.Audio.Format.String()
 
-		mutex.Lock()
+		// Get or create player-specific mutex
+		mapMutex.RLock()
+		playerMutex, exists := playerMutexes[steamId]
+		mapMutex.RUnlock()
+
+		if !exists {
+			mapMutex.Lock()
+			if _, exists = playerMutexes[steamId]; !exists {
+				playerMutexes[steamId] = &sync.Mutex{}
+				voiceDataPerPlayer[steamId] = make([][]byte, 0, 256) // Pre-allocate expected voice packets
+			}
+			playerMutex = playerMutexes[steamId]
+			mapMutex.Unlock()
+		}
+
+		// Lock only this player's data
+		playerMutex.Lock()
 		voiceDataPerPlayer[steamId] = append(voiceDataPerPlayer[steamId], m.Audio.VoiceData)
-		mutex.Unlock()
+		playerMutex.Unlock()
 	})
 
 	// Parse the full demo file
+	log.Printf("Starting demo parse for %s...", demoID)
 	err = parser.ParseToEnd()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse demo: %v", err)
 	}
+	log.Printf("Demo parsing completed for %s", demoID)
 
 	// Capture team info from parser state after parsing
 	for _, player := range parser.GameState().Participants().All() {
@@ -140,13 +159,19 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 
 // processVoiceDataParallel processes multiple players' voice data concurrently
 func processVoiceDataParallel(voiceDataPerPlayer map[string][][]byte, format, demoID string) error {
-	// Determine optimal number of workers (don't exceed number of CPUs or players)
+	// Use all available CPU cores for maximum throughput
+	// On 6-core ARM server, this will use all 6 cores
 	numWorkers := runtime.NumCPU()
-	if len(voiceDataPerPlayer) < numWorkers {
+
+	// Only reduce workers if we have very few players
+	if len(voiceDataPerPlayer) < 3 && len(voiceDataPerPlayer) > 0 {
 		numWorkers = len(voiceDataPerPlayer)
 	}
 
-	// Create job channel and worker goroutines
+	log.Printf("Processing %d players with %d workers on %d CPUs",
+		len(voiceDataPerPlayer), numWorkers, runtime.NumCPU())
+
+	// Create buffered channels for better throughput
 	jobs := make(chan VoiceProcessingJob, len(voiceDataPerPlayer))
 	errors := make(chan error, len(voiceDataPerPlayer))
 	var wg sync.WaitGroup

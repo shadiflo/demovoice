@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>CS2 Voice Extractor</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -10,66 +11,81 @@
             color: #e0e0e0;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
+
         .card {
             background: #2a2a2a;
             border: 1px solid #3a3a3a;
             border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
         }
+
         .player-card {
             background: #2a2a2a;
             border: 2px solid #4a90e2;
             margin-top: 0.5rem;
         }
+
         .player-card .card-body {
             padding: 0.5rem;
         }
+
         .player-name {
             font-weight: 600;
             text-decoration: none;
             color: #e0e0e0;
         }
+
         .player-name:hover {
             color: #4a90e2;
         }
+
         .badge-elo {
             background: #4a90e2;
             color: white;
             font-weight: 600;
         }
+
         .badge-stats {
             background: #4a90e2;
             color: white;
             font-size: 0.75rem;
         }
+
         .btn-group-sm .btn {
             padding: 0.25rem 0.5rem;
             font-size: 0.75rem;
         }
+
         .btn-outline-primary {
             color: #4a90e2;
             border-color: #4a90e2;
         }
+
         .btn-outline-primary:hover {
             background: #4a90e2;
             color: white;
         }
+
         .btn-primary {
             background: #4a90e2;
             border-color: #4a90e2;
         }
+
         .btn-primary:hover {
             background: #3a7bc8;
             border-color: #3a7bc8;
         }
+
         .btn-outline-secondary {
             color: #888;
             border-color: #444;
         }
+
         .btn-outline-secondary:hover {
             background: #444;
             color: #e0e0e0;
         }
+
         .waveform-container {
             height: 40px;
             background: #1a1a1a;
@@ -78,10 +94,12 @@
             cursor: pointer;
             overflow: hidden;
         }
+
         .waveform-canvas {
             width: 100%;
             height: 100%;
         }
+
         .waveform-progress {
             position: absolute;
             top: 0;
@@ -91,14 +109,17 @@
             border-right: 2px solid #4a90e2;
             pointer-events: none;
         }
+
         .volume-slider {
             width: 50%;
         }
+
         .team-header {
             font-size: 1.5rem;
             font-weight: 700;
             color: #e0e0e0;
         }
+
         .list-group-item {
             background: #2a2a2a;
             border-color: #3a3a3a;
@@ -106,57 +127,68 @@
             border-right: none;
             color: #e0e0e0;
         }
+
         .upload-section {
             background: #2a2a2a;
             border: 1px solid #3a3a3a;
             border-radius: 8px;
             padding: 1.5rem;
             margin-bottom: 1.5rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
         }
+
         .alert-primary {
             background: #2a3a4a;
             border-color: #3a4a5a;
             color: #a0c0e0;
         }
+
         .form-control {
             background: #1a1a1a;
             border-color: #3a3a3a;
             color: #e0e0e0;
         }
+
         .form-control:focus {
             background: #1a1a1a;
             border-color: #4a90e2;
             color: #e0e0e0;
         }
+
         .form-range {
             background: transparent;
         }
+
         .history-btn {
             padding: 0.15rem 0.4rem;
             font-size: 0.75rem;
         }
+
         .copy-btn {
             cursor: pointer;
         }
+
         .copy-btn:hover {
             opacity: 0.8;
         }
+
         .loading-modal {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.8);
+            background: rgba(0, 0, 0, 0.8);
             display: none;
             justify-content: center;
             align-items: center;
             z-index: 2000;
         }
+
         .loading-modal.active {
             display: flex;
         }
+
         .loading-content {
             background: #2a2a2a;
             border: 1px solid #3a3a3a;
@@ -165,6 +197,7 @@
             text-align: center;
             color: #e0e0e0;
         }
+
         .loading-spinner {
             width: 50px;
             height: 50px;
@@ -174,19 +207,27 @@
             animation: spin 1s linear infinite;
             margin: 0 auto 1rem;
         }
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
     </style>
 </head>
+
 <body>
     <main class="container py-3">
         <!-- Alert Banner -->
         <div class="row">
             <div class="col-12">
                 <div class="alert alert-primary" role="alert">
-                    <p class="mb-0">Upload a CS2 demo file or enter a Faceit matchroom URL to extract voice communications.</p>
+                    <p class="mb-0">Upload a CS2 demo file or enter a Faceit matchroom URL to extract voice
+                        communications.</p>
                 </div>
             </div>
         </div>
@@ -207,7 +248,9 @@
                     <h6 class="fw-bold mb-2">Option 2: Faceit Matchroom URL</h6>
                     <form action="/download-from-url" method="post" id="urlForm">
                         <div class="input-group">
-                            <input type="text" name="matchroom_url" placeholder="https://www.faceit.com/en/cs2/room/1-..." id="matchroomURL" class="form-control">
+                            <input type="text" name="matchroom_url"
+                                placeholder="https://www.faceit.com/en/cs2/room/1-..." id="matchroomURL"
+                                class="form-control">
                             <button type="submit" class="btn btn-primary" id="urlSubmitButton">Download</button>
                         </div>
                     </form>
@@ -252,7 +295,8 @@
                         <li class="list-group-item">
                             <form action="/" method="get" class="mb-0">
                                 <div class="input-group">
-                                    <input type="text" class="form-control" placeholder="Search for a match" id="searchInput">
+                                    <input type="text" class="form-control" placeholder="Search for a match"
+                                        id="searchInput">
                                     <button class="btn btn-outline-secondary" type="submit">GO!</button>
                                 </div>
                             </form>
@@ -292,159 +336,163 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     {{if .CurrentDemo}}
+    <div id="demo-data" data-players='{{.PlayersJSON}}'
+        data-cached-match='{{if .CachedMatchData}}{{.CachedMatchData}}{{else}}null{{end}}' style="display:none;"></div>
     <script>
-    const matchID = '{{.CurrentDemo.MatchID}}';
-    const demoID = '{{.CurrentDemo.DemoID}}';
-    const demoStatus = '{{.CurrentDemo.Status}}';
-    let players = {{.PlayersJSON}};
-    let audioMap = {};
-    let matchDataCache = null;
-    let statusPollInterval = null;
+        const matchID = '{{.CurrentDemo.MatchID}}';
+        const demoID = '{{.CurrentDemo.DemoID}}';
+        const demoStatus = '{{.CurrentDemo.Status}}';
 
-    // Cached match data for instant loading
-    const cachedMatchDataRaw = {{if .CachedMatchData}}{{.CachedMatchData}}{{else}}null{{end}};
-    if (cachedMatchDataRaw && cachedMatchDataRaw.payload) {
-        matchDataCache = cachedMatchDataRaw.payload;
-    }
+        const demoData = document.getElementById('demo-data');
+        let players = JSON.parse(demoData.getAttribute('data-players') || '[]');
+        let audioMap = {};
+        let matchDataCache = null;
+        let statusPollInterval = null;
 
-    // Create audio map
-    function updateAudioMap() {
-        audioMap = {};
-        players.forEach(p => {
-            if (p.AudioFile) {
-                audioMap[p.SteamID] = p.AudioFile;
+        // Cached match data for instant loading
+        const cachedMatchDataRaw = JSON.parse(demoData.getAttribute('data-cached-match') || 'null');
+        if (cachedMatchDataRaw && cachedMatchDataRaw.payload) {
+            matchDataCache = cachedMatchDataRaw.payload;
+        }
+
+        // Create audio map
+        function updateAudioMap() {
+            audioMap = {};
+            players.forEach(p => {
+                if (p.AudioFile) {
+                    audioMap[p.SteamID] = p.AudioFile;
+                }
+            });
+        }
+        updateAudioMap();
+
+        // Status polling while processing
+        function startStatusPolling() {
+            if (demoStatus === 'completed') return;
+
+            document.getElementById('loadingModal').classList.add('active');
+            document.querySelector('.loading-text').textContent = 'Processing demo...';
+
+            statusPollInterval = setInterval(() => {
+                fetch('/status?demo_id=' + demoID)
+                    .then(r => {
+                        console.log('Status response:', r.status);
+                        if (!r.ok) throw new Error('Status API returned ' + r.status);
+                        return r.json();
+                    })
+                    .then(data => {
+                        console.log('Status data:', data);
+                        if (data.status === 'completed') {
+                            clearInterval(statusPollInterval);
+
+                            // Update players if available
+                            if (data.players && data.players.length > 0) {
+                                players = data.players;
+                                updateAudioMap();
+                                console.log('Updated players:', players.length, 'Audio map:', audioMap);
+                            }
+
+                            // Always try to render, even with no players
+                            if (matchDataCache) {
+                                console.log('Rendering teams with cached match data');
+                                renderTeams(matchDataCache);
+                            } else if (matchID) {
+                                console.log('Fetching and rendering teams');
+                                fetchAndRenderTeams();
+                            } else {
+                                console.log('Rendering fallback');
+                                renderFallback();
+                            }
+
+                            document.getElementById('loadingModal').classList.remove('active');
+                        } else if (data.status === 'failed') {
+                            clearInterval(statusPollInterval);
+                            document.getElementById('loadingModal').classList.remove('active');
+                            alert('Processing failed.');
+                        } else {
+                            console.log('Still processing... status:', data.status);
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Status polling error:', err);
+                        // Don't stop polling on errors, but log them
+                    });
+            }, 1500);
+        }
+
+        // Fetch and render teams
+        function fetchAndRenderTeams() {
+            if (!matchID) {
+                console.log('No matchID, rendering fallback');
+                renderFallback();
+                return;
             }
-        });
-    }
-    updateAudioMap();
 
-    // Status polling while processing
-    function startStatusPolling() {
-        if (demoStatus === 'completed') return;
-
-        document.getElementById('loadingModal').classList.add('active');
-        document.querySelector('.loading-text').textContent = 'Processing demo...';
-
-        statusPollInterval = setInterval(() => {
-            fetch('/status?demo_id=' + demoID)
+            console.log('Fetching match data for matchID:', matchID);
+            fetch('/faceit/match?matchid=' + matchID)
                 .then(r => {
-                    console.log('Status response:', r.status);
-                    if (!r.ok) throw new Error('Status API returned ' + r.status);
+                    console.log('Match API response status:', r.status);
+                    if (!r.ok) throw new Error('Match API returned ' + r.status);
                     return r.json();
                 })
                 .then(data => {
-                    console.log('Status data:', data);
-                    if (data.status === 'completed') {
-                        clearInterval(statusPollInterval);
-
-                        // Update players if available
-                        if (data.players && data.players.length > 0) {
-                            players = data.players;
-                            updateAudioMap();
-                            console.log('Updated players:', players.length, 'Audio map:', audioMap);
-                        }
-
-                        // Always try to render, even with no players
-                        if (matchDataCache) {
-                            console.log('Rendering teams with cached match data');
-                            renderTeams(matchDataCache);
-                        } else if (matchID) {
-                            console.log('Fetching and rendering teams');
-                            fetchAndRenderTeams();
-                        } else {
-                            console.log('Rendering fallback');
-                            renderFallback();
-                        }
-
-                        document.getElementById('loadingModal').classList.remove('active');
-                    } else if (data.status === 'failed') {
-                        clearInterval(statusPollInterval);
-                        document.getElementById('loadingModal').classList.remove('active');
-                        alert('Processing failed.');
+                    console.log('Match data received:', data);
+                    if (data.payload && data.payload.entityCustom && data.payload.entityCustom.teams) {
+                        matchDataCache = data.payload;
+                        console.log('Rendering teams with fetched match data');
+                        renderTeams(data.payload);
                     } else {
-                        console.log('Still processing... status:', data.status);
+                        console.log('Invalid match data structure, rendering fallback');
+                        renderFallback();
                     }
+                    document.getElementById('loadingModal').classList.remove('active');
                 })
                 .catch(err => {
-                    console.error('Status polling error:', err);
-                    // Don't stop polling on errors, but log them
-                });
-        }, 1500);
-    }
-
-    // Fetch and render teams
-    function fetchAndRenderTeams() {
-        if (!matchID) {
-            console.log('No matchID, rendering fallback');
-            renderFallback();
-            return;
-        }
-
-        console.log('Fetching match data for matchID:', matchID);
-        fetch('/faceit/match?matchid=' + matchID)
-            .then(r => {
-                console.log('Match API response status:', r.status);
-                if (!r.ok) throw new Error('Match API returned ' + r.status);
-                return r.json();
-            })
-            .then(data => {
-                console.log('Match data received:', data);
-                if (data.payload && data.payload.entityCustom && data.payload.entityCustom.teams) {
-                    matchDataCache = data.payload;
-                    console.log('Rendering teams with fetched match data');
-                    renderTeams(data.payload);
-                } else {
-                    console.log('Invalid match data structure, rendering fallback');
+                    console.error('Error fetching match data:', err);
                     renderFallback();
-                }
-                document.getElementById('loadingModal').classList.remove('active');
-            })
-            .catch(err => {
-                console.error('Error fetching match data:', err);
-                renderFallback();
-                document.getElementById('loadingModal').classList.remove('active');
-            });
-    }
-
-    // Render teams from match data
-    function renderTeams(matchData) {
-        console.log('renderTeams called with:', matchData);
-        console.log('Current audioMap:', audioMap);
-
-        const faction1 = matchData.entityCustom.teams.faction1;
-        const faction2 = matchData.entityCustom.teams.faction2;
-
-        console.log('Team 1:', faction1.name, 'Players:', faction1.roster.length);
-        console.log('Team 2:', faction2.name, 'Players:', faction2.roster.length);
-
-        // Update team names
-        document.getElementById('team1Name').textContent = faction1.name;
-        document.getElementById('team2Name').textContent = faction2.name;
-
-        // Update match links
-        if (matchID) {
-            document.getElementById('frontendLink').href = 'https://www.faceit.com/en/cs2/room/' + matchID;
+                    document.getElementById('loadingModal').classList.remove('active');
+                });
         }
 
-        // Render team 1
-        document.getElementById('team1Container').innerHTML = renderTeamPlayers(faction1);
+        // Render teams from match data
+        function renderTeams(matchData) {
+            console.log('renderTeams called with:', matchData);
+            console.log('Current audioMap:', audioMap);
 
-        // Render team 2
-        document.getElementById('team2Container').innerHTML = renderTeamPlayers(faction2);
+            const faction1 = matchData.entityCustom.teams.faction1;
+            const faction2 = matchData.entityCustom.teams.faction2;
 
-        console.log('Teams rendered, initializing audio players in 300ms...');
-        // Initialize audio players
-        setTimeout(initAudioPlayers, 300);
-    }
+            console.log('Team 1:', faction1.name, 'Players:', faction1.roster.length);
+            console.log('Team 2:', faction2.name, 'Players:', faction2.roster.length);
 
-    // Render players for a team
-    function renderTeamPlayers(team) {
-        return team.roster.map(player => {
-            const audioFile = audioMap[player.gameId] || null;
-            const elo = player.elo || 0;
-            const level = player.gameSkillLevel || 1;
+            // Update team names
+            document.getElementById('team1Name').textContent = faction1.name;
+            document.getElementById('team2Name').textContent = faction2.name;
 
-            return `
+            // Update match links
+            if (matchID) {
+                document.getElementById('frontendLink').href = 'https://www.faceit.com/en/cs2/room/' + matchID;
+            }
+
+            // Render team 1
+            document.getElementById('team1Container').innerHTML = renderTeamPlayers(faction1);
+
+            // Render team 2
+            document.getElementById('team2Container').innerHTML = renderTeamPlayers(faction2);
+
+            console.log('Teams rendered, initializing audio players in 300ms...');
+            // Initialize audio players
+            setTimeout(initAudioPlayers, 300);
+        }
+
+        // Render players for a team
+        function renderTeamPlayers(team) {
+            return team.roster.map(player => {
+                const audioFile = audioMap[player.gameId] || null;
+                const elo = player.elo || 0;
+                const level = player.gameSkillLevel || 1;
+
+                return `
                 <div class="card player-card">
                     <div class="card-body">
                         <h5 class="card-title mb-1">
@@ -481,32 +529,32 @@
                     </div>
                 </div>
             `;
-        }).join('');
-    }
+            }).join('');
+        }
 
-    // Fallback render when no match data
-    function renderFallback() {
-        console.log('renderFallback called, players:', players.length);
-        console.log('Current audioMap:', audioMap);
+        // Fallback render when no match data
+        function renderFallback() {
+            console.log('renderFallback called, players:', players.length);
+            console.log('Current audioMap:', audioMap);
 
-        const team1 = players.slice(0, Math.ceil(players.length / 2));
-        const team2 = players.slice(Math.ceil(players.length / 2));
+            const team1 = players.slice(0, Math.ceil(players.length / 2));
+            const team2 = players.slice(Math.ceil(players.length / 2));
 
-        console.log('Team 1:', team1.length, 'players, Team 2:', team2.length, 'players');
+            console.log('Team 1:', team1.length, 'players, Team 2:', team2.length, 'players');
 
-        document.getElementById('team1Container').innerHTML = team1.map(p => renderFallbackPlayer(p)).join('');
-        document.getElementById('team2Container').innerHTML = team2.map(p => renderFallbackPlayer(p)).join('');
+            document.getElementById('team1Container').innerHTML = team1.map(p => renderFallbackPlayer(p)).join('');
+            document.getElementById('team2Container').innerHTML = team2.map(p => renderFallbackPlayer(p)).join('');
 
-        console.log('Fallback rendered, initializing audio players in 300ms...');
-        setTimeout(initAudioPlayers, 300);
-    }
+            console.log('Fallback rendered, initializing audio players in 300ms...');
+            setTimeout(initAudioPlayers, 300);
+        }
 
-    function renderFallbackPlayer(player) {
-        const audioFile = player.AudioFile || audioMap[player.SteamID];
-        const nickname = player.Nickname || 'Loading...';
-        const elo = player.FaceitElo || 0;
+        function renderFallbackPlayer(player) {
+            const audioFile = player.AudioFile || audioMap[player.SteamID];
+            const nickname = player.Nickname || 'Loading...';
+            const elo = player.FaceitElo || 0;
 
-        return `
+            return `
             <div class="card player-card" data-steam-id="${player.SteamID}">
                 <div class="card-body">
                     <h5 class="card-title mb-1">
@@ -543,181 +591,182 @@
                 </div>
             </div>
         `;
-    }
-
-    // Audio controls
-    function togglePlay(btn) {
-        const card = btn.closest('.player-card');
-        const audio = card.querySelector('audio');
-        if (!audio) return;
-
-        if (audio.paused) {
-            // Pause all other audio
-            document.querySelectorAll('audio').forEach(a => {
-                if (a !== audio) {
-                    a.pause();
-                    const otherBtn = a.closest('.player-card')?.querySelector('.play-btn');
-                    if (otherBtn) otherBtn.textContent = 'Play';
-                }
-            });
-            audio.play();
-            btn.textContent = 'Pause';
-        } else {
-            audio.pause();
-            btn.textContent = 'Play';
         }
-    }
 
-    function setVolume(slider) {
-        const card = slider.closest('.player-card');
-        const audio = card.querySelector('audio');
-        if (audio) audio.volume = slider.value;
-    }
+        // Audio controls
+        function togglePlay(btn) {
+            const card = btn.closest('.player-card');
+            const audio = card.querySelector('audio');
+            if (!audio) return;
 
-    function seekAudio(event, container) {
-        const card = container.closest('.player-card');
-        const audio = card.querySelector('audio');
-        if (!audio || !audio.duration) return;
+            if (audio.paused) {
+                // Pause all other audio
+                document.querySelectorAll('audio').forEach(a => {
+                    if (a !== audio) {
+                        a.pause();
+                        const otherBtn = a.closest('.player-card')?.querySelector('.play-btn');
+                        if (otherBtn) otherBtn.textContent = 'Play';
+                    }
+                });
+                audio.play();
+                btn.textContent = 'Pause';
+            } else {
+                audio.pause();
+                btn.textContent = 'Play';
+            }
+        }
 
-        const rect = container.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        audio.currentTime = (x / rect.width) * audio.duration;
-    }
+        function setVolume(slider) {
+            const card = slider.closest('.player-card');
+            const audio = card.querySelector('audio');
+            if (audio) audio.volume = slider.value;
+        }
 
-
-    // Initialize audio players with waveforms
-    function initAudioPlayers() {
-        const containers = document.querySelectorAll('.waveform-container');
-        console.log('initAudioPlayers called, found', containers.length, 'waveform containers');
-
-        containers.forEach((container, index) => {
+        function seekAudio(event, container) {
             const card = container.closest('.player-card');
             const audio = card.querySelector('audio');
-            const canvas = container.querySelector('.waveform-canvas');
-            const progress = container.querySelector('.waveform-progress');
+            if (!audio || !audio.duration) return;
 
-            console.log(`Player ${index + 1}:`, {
-                hasAudio: !!audio,
-                hasCanvas: !!canvas,
-                audioSrc: audio?.src
-            });
+            const rect = container.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            audio.currentTime = (x / rect.width) * audio.duration;
+        }
 
-            if (!audio || !canvas) {
-                console.warn(`Skipping player ${index + 1}: missing audio or canvas`);
-                return;
-            }
 
-            audio.volume = 0.8;
+        // Initialize audio players with waveforms
+        function initAudioPlayers() {
+            const containers = document.querySelectorAll('.waveform-container');
+            console.log('initAudioPlayers called, found', containers.length, 'waveform containers');
 
-            // Draw waveform
-            drawWaveform(audio, canvas);
+            containers.forEach((container, index) => {
+                const card = container.closest('.player-card');
+                const audio = card.querySelector('audio');
+                const canvas = container.querySelector('.waveform-canvas');
+                const progress = container.querySelector('.waveform-progress');
 
-            // Update progress
-            audio.addEventListener('timeupdate', () => {
-                if (audio.duration) {
-                    progress.style.width = (audio.currentTime / audio.duration * 100) + '%';
-                }
-            });
-
-            audio.addEventListener('ended', () => {
-                const btn = card.querySelector('.play-btn');
-                if (btn) btn.textContent = 'Play';
-            });
-        });
-    }
-
-    function drawWaveform(audio, canvas) {
-        if (!audio.src) return;
-
-        fetch(audio.src)
-            .then(r => r.arrayBuffer())
-            .then(buffer => {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                return ctx.decodeAudioData(buffer);
-            })
-            .then(audioBuffer => {
-                const canvasCtx = canvas.getContext('2d');
-                const width = canvas.width = canvas.offsetWidth * 2;
-                const height = canvas.height = canvas.offsetHeight * 2;
-                canvasCtx.scale(2, 2);
-
-                const displayW = canvas.offsetWidth;
-                const displayH = canvas.offsetHeight;
-
-                const data = audioBuffer.getChannelData(0);
-                const samples = 150;
-                const blockSize = Math.floor(data.length / samples);
-                const amplitudes = [];
-
-                for (let i = 0; i < samples; i++) {
-                    let sum = 0;
-                    for (let j = 0; j < blockSize; j++) {
-                        sum += Math.abs(data[i * blockSize + j] || 0);
-                    }
-                    amplitudes.push(sum / blockSize);
-                }
-
-                const max = Math.max(...amplitudes);
-                const barW = displayW / samples;
-
-                amplitudes.forEach((amp, i) => {
-                    const h = (amp / max) * displayH * 0.85;
-                    const y = (displayH - h) / 2;
-                    canvasCtx.fillStyle = '#0d6efd';
-                    canvasCtx.fillRect(i * barW, y, barW - 0.5, h);
+                console.log(`Player ${index + 1}:`, {
+                    hasAudio: !!audio,
+                    hasCanvas: !!canvas,
+                    audioSrc: audio?.src
                 });
-            })
-            .catch(() => {
-                // Fallback: random bars
-                const canvasCtx = canvas.getContext('2d');
-                const w = canvas.offsetWidth;
-                const h = canvas.offsetHeight;
-                for (let i = 0; i < 80; i++) {
-                    const barH = Math.random() * h * 0.6 + h * 0.2;
-                    canvasCtx.fillStyle = '#0d6efd';
-                    canvasCtx.fillRect(i * (w/80), (h - barH)/2, w/80 - 1, barH);
-                }
-            });
-    }
 
-    // Initialize on load
-    if (demoStatus !== 'completed') {
-        startStatusPolling();
-    } else if (matchDataCache) {
-        renderTeams(matchDataCache);
-    } else if (matchID) {
-        fetchAndRenderTeams();
-    } else {
-        renderFallback();
-    }
+                if (!audio || !canvas) {
+                    console.warn(`Skipping player ${index + 1}: missing audio or canvas`);
+                    return;
+                }
+
+                audio.volume = 0.8;
+
+                // Draw waveform
+                drawWaveform(audio, canvas);
+
+                // Update progress
+                audio.addEventListener('timeupdate', () => {
+                    if (audio.duration) {
+                        progress.style.width = (audio.currentTime / audio.duration * 100) + '%';
+                    }
+                });
+
+                audio.addEventListener('ended', () => {
+                    const btn = card.querySelector('.play-btn');
+                    if (btn) btn.textContent = 'Play';
+                });
+            });
+        }
+
+        function drawWaveform(audio, canvas) {
+            if (!audio.src) return;
+
+            fetch(audio.src)
+                .then(r => r.arrayBuffer())
+                .then(buffer => {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    return ctx.decodeAudioData(buffer);
+                })
+                .then(audioBuffer => {
+                    const canvasCtx = canvas.getContext('2d');
+                    const width = canvas.width = canvas.offsetWidth * 2;
+                    const height = canvas.height = canvas.offsetHeight * 2;
+                    canvasCtx.scale(2, 2);
+
+                    const displayW = canvas.offsetWidth;
+                    const displayH = canvas.offsetHeight;
+
+                    const data = audioBuffer.getChannelData(0);
+                    const samples = 150;
+                    const blockSize = Math.floor(data.length / samples);
+                    const amplitudes = [];
+
+                    for (let i = 0; i < samples; i++) {
+                        let sum = 0;
+                        for (let j = 0; j < blockSize; j++) {
+                            sum += Math.abs(data[i * blockSize + j] || 0);
+                        }
+                        amplitudes.push(sum / blockSize);
+                    }
+
+                    const max = Math.max(...amplitudes);
+                    const barW = displayW / samples;
+
+                    amplitudes.forEach((amp, i) => {
+                        const h = (amp / max) * displayH * 0.85;
+                        const y = (displayH - h) / 2;
+                        canvasCtx.fillStyle = '#0d6efd';
+                        canvasCtx.fillRect(i * barW, y, barW - 0.5, h);
+                    });
+                })
+                .catch(() => {
+                    // Fallback: random bars
+                    const canvasCtx = canvas.getContext('2d');
+                    const w = canvas.offsetWidth;
+                    const h = canvas.offsetHeight;
+                    for (let i = 0; i < 80; i++) {
+                        const barH = Math.random() * h * 0.6 + h * 0.2;
+                        canvasCtx.fillStyle = '#0d6efd';
+                        canvasCtx.fillRect(i * (w / 80), (h - barH) / 2, w / 80 - 1, barH);
+                    }
+                });
+        }
+
+        // Initialize on load
+        if (demoStatus !== 'completed') {
+            startStatusPolling();
+        } else if (matchDataCache) {
+            renderTeams(matchDataCache);
+        } else if (matchID) {
+            fetchAndRenderTeams();
+        } else {
+            renderFallback();
+        }
 
     </script>
     {{end}}
     <script>
 
-    // Form handlers
-    document.getElementById('uploadForm')?.addEventListener('submit', function(e) {
-        if (!document.getElementById('demoFile').files[0]) {
-            e.preventDefault();
-            alert('Please select a demo file');
-            return;
-        }
-        document.getElementById('loadingModal').classList.add('active');
-        document.querySelector('.loading-text').textContent = 'Uploading...';
-        document.getElementById('submitButton').disabled = true;
-    });
+        // Form handlers
+        document.getElementById('uploadForm')?.addEventListener('submit', function (e) {
+            if (!document.getElementById('demoFile').files[0]) {
+                e.preventDefault();
+                alert('Please select a demo file');
+                return;
+            }
+            document.getElementById('loadingModal').classList.add('active');
+            document.querySelector('.loading-text').textContent = 'Uploading...';
+            document.getElementById('submitButton').disabled = true;
+        });
 
-    document.getElementById('urlForm')?.addEventListener('submit', function(e) {
-        const url = document.getElementById('matchroomURL').value.trim();
-        if (!url || !url.includes('faceit.com') || !url.includes('/room/')) {
-            e.preventDefault();
-            alert('Please enter a valid Faceit matchroom URL');
-            return;
-        }
-        document.getElementById('loadingModal').classList.add('active');
-        document.querySelector('.loading-text').textContent = 'Downloading demo...';
-        document.getElementById('urlSubmitButton').disabled = true;
-    });
+        document.getElementById('urlForm')?.addEventListener('submit', function (e) {
+            const url = document.getElementById('matchroomURL').value.trim();
+            if (!url || !url.includes('faceit.com') || !url.includes('/room/')) {
+                e.preventDefault();
+                alert('Please enter a valid Faceit matchroom URL');
+                return;
+            }
+            document.getElementById('loadingModal').classList.add('active');
+            document.querySelector('.loading-text').textContent = 'Downloading demo...';
+            document.getElementById('urlSubmitButton').disabled = true;
+        });
     </script>
 </body>
+
 </html>
