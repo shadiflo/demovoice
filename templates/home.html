@@ -327,25 +327,47 @@
 
         statusPollInterval = setInterval(() => {
             fetch('/status?demo_id=' + demoID)
-                .then(r => r.json())
+                .then(r => {
+                    console.log('Status response:', r.status);
+                    if (!r.ok) throw new Error('Status API returned ' + r.status);
+                    return r.json();
+                })
                 .then(data => {
+                    console.log('Status data:', data);
                     if (data.status === 'completed') {
                         clearInterval(statusPollInterval);
+
+                        // Update players if available
                         if (data.players && data.players.length > 0) {
                             players = data.players;
                             updateAudioMap();
-                            if (matchDataCache) {
-                                renderTeams(matchDataCache);
-                            } else {
-                                fetchAndRenderTeams();
-                            }
+                            console.log('Updated players:', players.length, 'Audio map:', audioMap);
                         }
+
+                        // Always try to render, even with no players
+                        if (matchDataCache) {
+                            console.log('Rendering teams with cached match data');
+                            renderTeams(matchDataCache);
+                        } else if (matchID) {
+                            console.log('Fetching and rendering teams');
+                            fetchAndRenderTeams();
+                        } else {
+                            console.log('Rendering fallback');
+                            renderFallback();
+                        }
+
                         document.getElementById('loadingModal').classList.remove('active');
                     } else if (data.status === 'failed') {
                         clearInterval(statusPollInterval);
                         document.getElementById('loadingModal').classList.remove('active');
                         alert('Processing failed.');
+                    } else {
+                        console.log('Still processing... status:', data.status);
                     }
+                })
+                .catch(err => {
+                    console.error('Status polling error:', err);
+                    // Don't stop polling on errors, but log them
                 });
         }, 1500);
     }
@@ -353,22 +375,32 @@
     // Fetch and render teams
     function fetchAndRenderTeams() {
         if (!matchID) {
+            console.log('No matchID, rendering fallback');
             renderFallback();
             return;
         }
 
+        console.log('Fetching match data for matchID:', matchID);
         fetch('/faceit/match?matchid=' + matchID)
-            .then(r => r.json())
+            .then(r => {
+                console.log('Match API response status:', r.status);
+                if (!r.ok) throw new Error('Match API returned ' + r.status);
+                return r.json();
+            })
             .then(data => {
+                console.log('Match data received:', data);
                 if (data.payload && data.payload.entityCustom && data.payload.entityCustom.teams) {
                     matchDataCache = data.payload;
+                    console.log('Rendering teams with fetched match data');
                     renderTeams(data.payload);
                 } else {
+                    console.log('Invalid match data structure, rendering fallback');
                     renderFallback();
                 }
                 document.getElementById('loadingModal').classList.remove('active');
             })
-            .catch(() => {
+            .catch(err => {
+                console.error('Error fetching match data:', err);
                 renderFallback();
                 document.getElementById('loadingModal').classList.remove('active');
             });
@@ -376,8 +408,14 @@
 
     // Render teams from match data
     function renderTeams(matchData) {
+        console.log('renderTeams called with:', matchData);
+        console.log('Current audioMap:', audioMap);
+
         const faction1 = matchData.entityCustom.teams.faction1;
         const faction2 = matchData.entityCustom.teams.faction2;
+
+        console.log('Team 1:', faction1.name, 'Players:', faction1.roster.length);
+        console.log('Team 2:', faction2.name, 'Players:', faction2.roster.length);
 
         // Update team names
         document.getElementById('team1Name').textContent = faction1.name;
@@ -394,6 +432,7 @@
         // Render team 2
         document.getElementById('team2Container').innerHTML = renderTeamPlayers(faction2);
 
+        console.log('Teams rendered, initializing audio players in 300ms...');
         // Initialize audio players
         setTimeout(initAudioPlayers, 300);
     }
@@ -447,12 +486,18 @@
 
     // Fallback render when no match data
     function renderFallback() {
+        console.log('renderFallback called, players:', players.length);
+        console.log('Current audioMap:', audioMap);
+
         const team1 = players.slice(0, Math.ceil(players.length / 2));
         const team2 = players.slice(Math.ceil(players.length / 2));
+
+        console.log('Team 1:', team1.length, 'players, Team 2:', team2.length, 'players');
 
         document.getElementById('team1Container').innerHTML = team1.map(p => renderFallbackPlayer(p)).join('');
         document.getElementById('team2Container').innerHTML = team2.map(p => renderFallbackPlayer(p)).join('');
 
+        console.log('Fallback rendered, initializing audio players in 300ms...');
         setTimeout(initAudioPlayers, 300);
     }
 
@@ -542,13 +587,25 @@
 
     // Initialize audio players with waveforms
     function initAudioPlayers() {
-        document.querySelectorAll('.waveform-container').forEach(container => {
+        const containers = document.querySelectorAll('.waveform-container');
+        console.log('initAudioPlayers called, found', containers.length, 'waveform containers');
+
+        containers.forEach((container, index) => {
             const card = container.closest('.player-card');
             const audio = card.querySelector('audio');
             const canvas = container.querySelector('.waveform-canvas');
             const progress = container.querySelector('.waveform-progress');
 
-            if (!audio || !canvas) return;
+            console.log(`Player ${index + 1}:`, {
+                hasAudio: !!audio,
+                hasCanvas: !!canvas,
+                audioSrc: audio?.src
+            });
+
+            if (!audio || !canvas) {
+                console.warn(`Skipping player ${index + 1}: missing audio or canvas`);
+                return;
+            }
 
             audio.volume = 0.8;
 
