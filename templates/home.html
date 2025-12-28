@@ -353,6 +353,9 @@
         const cachedMatchDataRaw = JSON.parse(demoData.getAttribute('data-cached-match') || 'null');
         if (cachedMatchDataRaw && cachedMatchDataRaw.payload) {
             matchDataCache = cachedMatchDataRaw.payload;
+        } else if (cachedMatchDataRaw && cachedMatchDataRaw.teams) {
+            // Handle case where payload is the root object
+            matchDataCache = cachedMatchDataRaw;
         }
 
         // Create audio map
@@ -437,7 +440,12 @@
                 })
                 .then(data => {
                     console.log('Match data received:', data);
-                    if (data.payload && data.payload.entityCustom && data.payload.entityCustom.teams) {
+                    // Check for teams in both possible locations (API structure changed)
+                    const hasTeams = data.payload && (
+                        (data.payload.teams && data.payload.teams.faction1) ||
+                        (data.payload.entityCustom && data.payload.entityCustom.teams)
+                    );
+                    if (hasTeams) {
                         matchDataCache = data.payload;
                         console.log('Rendering teams with fetched match data');
                         renderTeams(data.payload);
@@ -459,8 +467,19 @@
             console.log('renderTeams called with:', matchData);
             console.log('Current audioMap:', audioMap);
 
-            const faction1 = matchData.entityCustom.teams.faction1;
-            const faction2 = matchData.entityCustom.teams.faction2;
+            // Handle both API structures (teams under .teams or .entityCustom.teams)
+            let faction1, faction2;
+            if (matchData.teams && matchData.teams.faction1) {
+                faction1 = matchData.teams.faction1;
+                faction2 = matchData.teams.faction2;
+            } else if (matchData.entityCustom && matchData.entityCustom.teams) {
+                faction1 = matchData.entityCustom.teams.faction1;
+                faction2 = matchData.entityCustom.teams.faction2;
+            } else {
+                console.error('No teams found in match data');
+                renderFallback();
+                return;
+            }
 
             console.log('Team 1:', faction1.name, 'Players:', faction1.roster.length);
             console.log('Team 2:', faction2.name, 'Players:', faction2.roster.length);

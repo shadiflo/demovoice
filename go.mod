@@ -1,8 +1,8 @@
 module demovoice
 
-go 1.21
+go 1.23
 
-toolchain go1.21.4
+toolchain go1.24.0
 
 require (
 	github.com/go-audio/audio v1.0.0
@@ -16,6 +16,7 @@ require (
 	github.com/go-audio/riff v1.0.0 // indirect
 	github.com/golang/geo v0.0.0-20230421003525-6adc56603217 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/markus-wa/go-unassert v0.1.3 // indirect
 	github.com/markus-wa/gobitread v0.2.4 // indirect
 	github.com/markus-wa/godispatch v1.4.1 // indirect

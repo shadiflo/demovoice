@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"demovoice/decoder"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,9 +12,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
+	"github.com/klauspost/compress/zstd"
 	dem "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/msgs2"
 )
@@ -67,6 +72,8 @@ type VoiceProcessingJob struct {
 // ProcessDemo processes a demo file and extracts voice data with optimizations
 // The demoID parameter is used to associate voice files with a specific demo
 func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
+	startTime := time.Now()
+
 	// Pre-allocate maps with expected capacity (10 players typical)
 	voiceDataPerPlayer := make(map[string][][]byte, 10)
 	playerTeams := make(map[string]int, 10)
@@ -76,14 +83,44 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 	playerMutexes := make(map[string]*sync.Mutex, 10)
 	var mapMutex sync.RWMutex
 
-	// Open the demo file with buffered reader
+	// Track voice packets for progress
+	var voicePacketCount int64
+
+	// Open the demo file
 	file, err := os.Open(demoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open demo file: %v", err)
 	}
 	defer file.Close()
 
-	parser := dem.NewParser(file)
+	// Get file size for progress logging
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat demo file: %v", err)
+	}
+	fileSizeMB := float64(fileInfo.Size()) / (1024 * 1024)
+	log.Printf("Demo file size: %.2f MB", fileSizeMB)
+
+	// Create buffered reader for faster I/O (4MB buffer for large demo files)
+	bufferedReader := bufio.NewReaderSize(file, 4*1024*1024)
+
+	// Check if file is zstd compressed (.dem.zst) and decompress if needed
+	var demoReader io.Reader = bufferedReader
+	if strings.HasSuffix(strings.ToLower(demoPath), ".zst") {
+		log.Printf("Detected zstd compressed demo, decompressing...")
+		zstdDecoder, err := zstd.NewReader(bufferedReader,
+			zstd.WithDecoderConcurrency(runtime.NumCPU()),
+			zstd.WithDecoderLowmem(false), // Allow more memory for faster decompression
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create zstd decoder: %v", err)
+		}
+		defer zstdDecoder.Close()
+		demoReader = zstdDecoder
+		log.Printf("Zstd decoder initialized with %d concurrent workers", runtime.NumCPU())
+	}
+
+	parser := dem.NewParser(demoReader)
 
 	// Optimize parser - only register voice data handler
 	// Skip other events to reduce parsing overhead
@@ -92,6 +129,9 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 		if len(m.Audio.VoiceData) == 0 {
 			return
 		}
+
+		// Track packet count for progress
+		atomic.AddInt64(&voicePacketCount, 1)
 
 		// Get the users Steam ID 64
 		steamId := strconv.Itoa(int(m.GetXuid()))
@@ -119,12 +159,14 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 	})
 
 	// Parse the full demo file
-	log.Printf("Starting demo parse for %s...", demoID)
+	log.Printf("Starting demo parse for %s (%.2f MB)...", demoID, fileSizeMB)
 	err = parser.ParseToEnd()
+	parseTime := time.Since(startTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse demo: %v", err)
 	}
-	log.Printf("Demo parsing completed for %s", demoID)
+	log.Printf("Demo parsing completed for %s in %.2fs (%.2f MB/s, %d voice packets)",
+		demoID, parseTime.Seconds(), fileSizeMB/parseTime.Seconds(), atomic.LoadInt64(&voicePacketCount))
 
 	// Capture team info from parser state after parsing
 	for _, player := range parser.GameState().Participants().All() {
@@ -159,6 +201,8 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 
 // processVoiceDataParallel processes multiple players' voice data concurrently
 func processVoiceDataParallel(voiceDataPerPlayer map[string][][]byte, format, demoID string) error {
+	startTime := time.Now()
+
 	// Use all available CPU cores for maximum throughput
 	// On 6-core ARM server, this will use all 6 cores
 	numWorkers := runtime.NumCPU()
@@ -168,8 +212,14 @@ func processVoiceDataParallel(voiceDataPerPlayer map[string][][]byte, format, de
 		numWorkers = len(voiceDataPerPlayer)
 	}
 
-	log.Printf("Processing %d players with %d workers on %d CPUs",
-		len(voiceDataPerPlayer), numWorkers, runtime.NumCPU())
+	// Calculate total voice data size
+	var totalPackets int
+	for _, packets := range voiceDataPerPlayer {
+		totalPackets += len(packets)
+	}
+
+	log.Printf("Processing %d players (%d packets) with %d workers on %d CPUs",
+		len(voiceDataPerPlayer), totalPackets, numWorkers, runtime.NumCPU())
 
 	// Create buffered channels for better throughput
 	jobs := make(chan VoiceProcessingJob, len(voiceDataPerPlayer))
@@ -222,8 +272,13 @@ func processVoiceDataParallel(voiceDataPerPlayer map[string][][]byte, format, de
 		}
 	}
 
+	processTime := time.Since(startTime)
 	if len(processingErrors) > 0 {
-		log.Printf("Completed with %d errors out of %d players", len(processingErrors), len(voiceDataPerPlayer))
+		log.Printf("Voice processing completed in %.2fs with %d errors out of %d players",
+			processTime.Seconds(), len(processingErrors), len(voiceDataPerPlayer))
+	} else {
+		log.Printf("Voice processing completed in %.2fs for %d players (%d packets)",
+			processTime.Seconds(), len(voiceDataPerPlayer), totalPackets)
 	}
 
 	return nil
