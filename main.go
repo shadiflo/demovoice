@@ -295,6 +295,23 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Create a unique ID for this demo upload
 	demoID := fmt.Sprintf("demo_%d", time.Now().UnixNano())
 
+	// Extract match ID from filename for instant team loading
+	matchID := storage.ExtractMatchIDFromFilename(header.Filename)
+	var matchDataJSON string
+
+	// If we found a match ID, prefetch match data for faster UI loading
+	if matchID != "" {
+		log.Printf("Extracted match ID from uploaded file: %s", matchID)
+		matchData, err := faceitClient.GetMatchData(matchID)
+		if err != nil {
+			log.Printf("Warning: Could not prefetch match data: %v", err)
+		} else {
+			matchDataBytes, _ := json.Marshal(matchData)
+			matchDataJSON = string(matchDataBytes)
+			log.Printf("Prefetched match data for faster loading")
+		}
+	}
+
 	// Create temporary file for processing
 	tempPath := filepath.Join(uploadDir, header.Filename)
 	tempFile, err := os.Create(tempPath)
@@ -311,13 +328,15 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create initial metadata with "processing" status
+	// Create initial metadata with "processing" status and cached match data
 	initialMetadata := &storage.DemoMetadata{
-		DemoID:     demoID,
-		Filename:   header.Filename,
-		Status:     "processing",
-		UploadTime: time.Now(),
-		Players:    []api.PlayerInfo{},
+		DemoID:        demoID,
+		Filename:      header.Filename,
+		MatchID:       matchID,
+		Status:        "processing",
+		UploadTime:    time.Now(),
+		Players:       []api.PlayerInfo{},
+		MatchDataJSON: matchDataJSON,
 	}
 	metadataStore.UpdateMetadata(initialMetadata)
 	// Also register the metadata file so it gets cleaned up

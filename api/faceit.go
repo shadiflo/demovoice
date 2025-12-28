@@ -20,13 +20,14 @@ type FaceitClient struct {
 
 // PlayerInfo contains information about a player
 type PlayerInfo struct {
-	SteamID     string
-	Nickname    string
-	AudioFile   string
-	FaceitLevel int
-	FaceitElo   int
-	DemoID      string // Track which demo the voice belongs to
-	Team        string // Team 1 or Team 2
+	SteamID      string
+	Nickname     string
+	AudioFile    string
+	AudioLength  string  // Duration like "1m 23s" or "45s"
+	FaceitLevel  int
+	FaceitElo    int
+	DemoID       string // Track which demo the voice belongs to
+	Team         string // Team 1 or Team 2
 }
 
 // FaceitResponse represents the response from the Faceit API

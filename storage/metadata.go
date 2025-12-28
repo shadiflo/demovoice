@@ -2,6 +2,7 @@ package storage
 
 import (
 	"demovoice/api"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -51,10 +52,15 @@ func (s *MetadataStore) SaveMetadata(demoID, filename string) (*DemoMetadata, er
 			parts := strings.Split(file.Name(), "_"+demoID+".wav")
 			if len(parts) > 0 {
 				steamID := parts[0]
+
+				// Calculate audio duration
+				audioLength := getWavDuration(filepath.Join(s.OutputDir, file.Name()))
+
 				players = append(players, api.PlayerInfo{
-					SteamID:   steamID,
-					AudioFile: file.Name(),
-					DemoID:    demoID,
+					SteamID:     steamID,
+					AudioFile:   file.Name(),
+					AudioLength: audioLength,
+					DemoID:      demoID,
 				})
 			}
 		}
@@ -65,7 +71,7 @@ func (s *MetadataStore) SaveMetadata(demoID, filename string) (*DemoMetadata, er
 
 	// Extract match ID from filename if possible
 	// Format: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52-1-1.dem
-	matchID := extractMatchIDFromFilename(filename)
+	matchID := ExtractMatchIDFromFilename(filename)
 
 	// Save metadata as JSON
 	metadata := DemoMetadata{
@@ -181,10 +187,10 @@ func (s *MetadataStore) UpdateMetadata(metadata *DemoMetadata) error {
 	return os.WriteFile(metadataPath, metadataBytes, 0644)
 }
 
-// extractMatchIDFromFilename extracts the Faceit match ID from a demo filename
+// ExtractMatchIDFromFilename extracts the Faceit match ID from a demo filename
 // Format: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52-1-1.dem or 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52.dem.zst
 // Returns: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52
-func extractMatchIDFromFilename(filename string) string {
+func ExtractMatchIDFromFilename(filename string) string {
 	// Remove various extensions
 	name := strings.TrimSuffix(filename, ".dem.zst")
 	name = strings.TrimSuffix(name, ".dem")
@@ -200,4 +206,57 @@ func extractMatchIDFromFilename(filename string) string {
 	}
 
 	return ""
+}
+
+// getWavDuration reads a WAV file and returns the duration as a formatted string
+func getWavDuration(filePath string) string {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "?"
+	}
+	defer file.Close()
+
+	// Read WAV header (44 bytes minimum)
+	header := make([]byte, 44)
+	n, err := file.Read(header)
+	if err != nil || n < 44 {
+		return "?"
+	}
+
+	// Verify RIFF header
+	if string(header[0:4]) != "RIFF" || string(header[8:12]) != "WAVE" {
+		return "?"
+	}
+
+	// Extract audio format parameters
+	// Bytes 24-27: Sample Rate (little endian)
+	sampleRate := binary.LittleEndian.Uint32(header[24:28])
+	if sampleRate == 0 {
+		return "?"
+	}
+
+	// Get file size to calculate duration
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return "?"
+	}
+
+	// WAV data size = file size - header size (44 bytes)
+	// Duration = data size / (sample rate * channels * bytes per sample)
+	// For our files: 1 channel, 32 bits (4 bytes) per sample
+	dataSize := fileInfo.Size() - 44
+	bytesPerSample := 4 // 32-bit samples
+	channels := 1
+
+	totalSamples := dataSize / int64(bytesPerSample*channels)
+	durationSeconds := float64(totalSamples) / float64(sampleRate)
+
+	// Format duration as "1m 23s" or "45s"
+	minutes := int(durationSeconds) / 60
+	seconds := int(durationSeconds) % 60
+
+	if minutes > 0 {
+		return fmt.Sprintf("%dm %ds", minutes, seconds)
+	}
+	return fmt.Sprintf("%ds", seconds)
 }

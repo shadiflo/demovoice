@@ -3,6 +3,7 @@
 
 <head>
     <title>CS2 Voice Extractor</title>
+    <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <style>
@@ -138,9 +139,10 @@
         }
 
         .alert-primary {
-            background: #2a3a4a;
-            border-color: #3a4a5a;
+            background: #1e3a5f;
+            border-color: #2a4a6a;
             color: #ffffff;
+            font-weight: 500;
         }
 
         .form-control {
@@ -348,6 +350,14 @@
         const demoID = '{{.CurrentDemo.DemoID}}';
         const demoStatus = '{{.CurrentDemo.Status}}';
 
+        // Set matchroom link immediately if we have a matchID
+        if (matchID) {
+            const matchroomLink = document.getElementById('matchroomLink');
+            if (matchroomLink) {
+                matchroomLink.href = 'https://www.faceit.com/en/cs2/room/' + matchID;
+            }
+        }
+
         const demoData = document.getElementById('demo-data');
         let players = JSON.parse(demoData.getAttribute('data-players') || '[]');
         let audioMap = {};
@@ -369,6 +379,9 @@
             players.forEach(p => {
                 if (p.AudioFile) {
                     audioMap[p.SteamID] = p.AudioFile;
+                    if (p.AudioLength) {
+                        audioMap[p.SteamID + '_length'] = p.AudioLength;
+                    }
                 }
             });
         }
@@ -516,6 +529,8 @@
                 const elo = player.elo || 0;
                 const level = player.gameSkillLevel || 1;
 
+                const audioLength = audioMap[player.gameId + '_length'] || '';
+
                 return `
                 <div class="card player-card">
                     <div class="card-body">
@@ -523,6 +538,7 @@
                             <span class="player-name">${player.nickname}</span>
                             <span class="badge badge-elo rounded-pill float-end">${elo} ELO</span>
                         </h5>
+                        ${audioLength ? `<p class="mb-0 text-muted" style="font-size: 0.85rem;">🎤 ${audioLength}</p>` : ''}
                     </div>
                     ${audioFile ? `
                     <ul class="list-group list-group-flush">
@@ -574,6 +590,7 @@
             const audioFile = player.AudioFile || audioMap[player.SteamID];
             const nickname = player.Nickname || 'Loading...';
             const elo = player.FaceitElo || 0;
+            const audioLength = player.AudioLength || audioMap[player.SteamID + '_length'] || '';
 
             return `
             <div class="card player-card" data-steam-id="${player.SteamID}">
@@ -582,6 +599,7 @@
                         <span class="player-name">${nickname}</span>
                         ${elo > 0 ? `<span class="badge badge-elo rounded-pill float-end">${elo} ELO</span>` : ''}
                     </h5>
+                    ${audioLength ? `<p class="mb-0 text-muted" style="font-size: 0.85rem;">🎤 ${audioLength}</p>` : ''}
                 </div>
                 ${audioFile ? `
                 <ul class="list-group list-group-flush">
