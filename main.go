@@ -24,7 +24,7 @@ import (
 var (
 	uploadDir        string
 	outputDir        string
-	tempFileLifetime = 5 * time.Minute // Files will be deleted after 5 minutes
+	tempFileLifetime = 2 * time.Hour // Files will be deleted after 2 hours
 )
 
 func getExecutableDir() string {
@@ -119,8 +119,9 @@ func init() {
 	matchClient = api.NewMatchClient()
 	metadataStore = storage.NewMetadataStore(outputDir)
 
-	// Clean existing files in output directory on startup
-	cleanExistingFiles()
+	// Don't clean existing files on startup - let TTL handle cleanup
+	// This prevents deleting files if server restarts
+	// cleanExistingFiles()
 
 	// Start background cleanup routine for temporary files
 	go startTempFileCleanup()

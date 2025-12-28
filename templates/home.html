@@ -140,19 +140,24 @@
         .alert-primary {
             background: #2a3a4a;
             border-color: #3a4a5a;
-            color: #a0c0e0;
+            color: #ffffff;
         }
 
         .form-control {
             background: #1a1a1a;
             border-color: #3a3a3a;
-            color: #e0e0e0;
+            color: #ffffff;
         }
 
         .form-control:focus {
             background: #1a1a1a;
             border-color: #4a90e2;
-            color: #e0e0e0;
+            color: #ffffff;
+        }
+
+        .form-control::placeholder {
+            color: #888888;
+            opacity: 1;
         }
 
         .form-range {
@@ -289,7 +294,7 @@
                     <ul class="list-group list-group-flush">
                         <li class="list-group-item">
                             <div class="btn-group col-md-12" id="matchLinks">
-                                <a href="#" class="btn btn-primary" id="frontendLink" target="_blank">FrontEnd</a>
+                                <a href="#" class="btn btn-primary" id="matchroomLink" target="_blank">Matchroom</a>
                             </div>
                         </li>
                         <li class="list-group-item">
@@ -490,7 +495,7 @@
 
             // Update match links
             if (matchID) {
-                document.getElementById('frontendLink').href = 'https://www.faceit.com/en/cs2/room/' + matchID;
+                document.getElementById('matchroomLink').href = 'https://www.faceit.com/en/cs2/room/' + matchID;
             }
 
             // Render team 1
@@ -515,10 +520,7 @@
                 <div class="card player-card">
                     <div class="card-body">
                         <h5 class="card-title mb-1">
-                            <a href="#" class="player-name">${player.nickname}</a>
-                            <button class="btn btn-outline-primary history-btn ms-1" title="Player history">
-                                <i class="fa fa-history"></i>
-                            </button>
+                            <span class="player-name">${player.nickname}</span>
                             <span class="badge badge-elo rounded-pill float-end">${elo} ELO</span>
                         </h5>
                     </div>
@@ -537,11 +539,11 @@
                     ` : ''}
                     <div class="card-body p-1">
                         <div class="btn-group btn-group-sm">
-                            <a href="https://steamcommunity.com/profiles/${player.gameId}" target="_blank" class="btn btn-outline-primary">STEAM</a>
-                            <a href="https://www.faceit.com/en/players/${player.nickname}" target="_blank" class="btn btn-outline-primary">FrontEnd</a>
+                            <a href="https://steamcommunity.com/profiles/${player.gameId}" target="_blank" class="btn btn-outline-primary">Steam</a>
+                            <a href="https://www.faceit.com/en/players/${player.nickname}" target="_blank" class="btn btn-outline-primary">Faceit</a>
                             ${audioFile ? `
                             <button class="btn btn-primary play-btn" onclick="togglePlay(this)" data-audio="/output/${audioFile}">Play</button>
-                            <a href="/output/${audioFile}" download class="btn btn-outline-primary" title="Download">DW</a>
+                            <a href="/output/${audioFile}" download class="btn btn-outline-primary" title="Download">DL</a>
                             ` : ''}
                         </div>
                         <audio class="d-none" ${audioFile ? `src="/output/${audioFile}"` : ''} preload="metadata"></audio>
@@ -578,9 +580,6 @@
                 <div class="card-body">
                     <h5 class="card-title mb-1">
                         <span class="player-name">${nickname}</span>
-                        <button class="btn btn-outline-primary history-btn ms-1" title="Player history">
-                            <i class="fa fa-history"></i>
-                        </button>
                         ${elo > 0 ? `<span class="badge badge-elo rounded-pill float-end">${elo} ELO</span>` : ''}
                     </h5>
                 </div>
@@ -599,11 +598,11 @@
                 ` : ''}
                 <div class="card-body p-1">
                     <div class="btn-group btn-group-sm">
-                        <a href="https://steamcommunity.com/profiles/${player.SteamID}" target="_blank" class="btn btn-outline-primary">STEAM</a>
-                        ${nickname !== 'Loading...' ? `<a href="https://www.faceit.com/en/players/${nickname}" target="_blank" class="btn btn-outline-primary">FrontEnd</a>` : ''}
+                        <a href="https://steamcommunity.com/profiles/${player.SteamID}" target="_blank" class="btn btn-outline-primary">Steam</a>
+                        ${nickname !== 'Loading...' ? `<a href="https://www.faceit.com/en/players/${nickname}" target="_blank" class="btn btn-outline-primary">Faceit</a>` : ''}
                         ${audioFile ? `
                         <button class="btn btn-primary play-btn" onclick="togglePlay(this)" data-audio="/output/${audioFile}">Play</button>
-                        <a href="/output/${audioFile}" download class="btn btn-outline-primary">DW</a>
+                        <a href="/output/${audioFile}" download class="btn btn-outline-primary">DL</a>
                         ` : ''}
                     </div>
                     <audio class="d-none" ${audioFile ? `src="/output/${audioFile}"` : ''} preload="metadata"></audio>
