@@ -294,7 +294,13 @@
             <span class="col-md-4 py-2" id="optionsContainer">
                 <div class="card mt-1">
                     <ul class="list-group list-group-flush">
-                        <li class="list-group-item">
+                        <li class="list-group-item text-center" id="statusDisplay" style="display: none;">
+                            <div class="spinner-border text-primary" role="status" style="width: 2rem; height: 2rem;">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mb-0 mt-2" id="statusText" style="color: #ffffff;">Processing demo...</p>
+                        </li>
+                        <li class="list-group-item" id="matchroomButtonContainer">
                             <div class="btn-group col-md-12" id="matchLinks">
                                 <a href="#" class="btn btn-primary" id="matchroomLink" target="_blank">Matchroom</a>
                             </div>
@@ -391,8 +397,10 @@
         function startStatusPolling() {
             if (demoStatus === 'completed') return;
 
-            document.getElementById('loadingModal').classList.add('active');
-            document.querySelector('.loading-text').textContent = 'Processing demo...';
+            // Show inline status display instead of modal
+            document.getElementById('statusDisplay').style.display = 'block';
+            document.getElementById('matchroomButtonContainer').style.display = 'none';
+            document.getElementById('statusText').textContent = 'Processing demo...';
 
             statusPollInterval = setInterval(() => {
                 fetch('/status?demo_id=' + demoID)
@@ -405,6 +413,10 @@
                         console.log('Status data:', data);
                         if (data.status === 'completed') {
                             clearInterval(statusPollInterval);
+
+                            // Hide status display, show matchroom button
+                            document.getElementById('statusDisplay').style.display = 'none';
+                            document.getElementById('matchroomButtonContainer').style.display = 'block';
 
                             // Update players if available
                             if (data.players && data.players.length > 0) {
@@ -425,10 +437,10 @@
                                 renderFallback();
                             }
 
-                            document.getElementById('loadingModal').classList.remove('active');
+                            // document.getElementById('loadingModal').classList.remove('active');
                         } else if (data.status === 'failed') {
                             clearInterval(statusPollInterval);
-                            document.getElementById('loadingModal').classList.remove('active');
+                            // document.getElementById('loadingModal').classList.remove('active');
                             alert('Processing failed.');
                         } else {
                             console.log('Still processing... status:', data.status);
@@ -438,7 +450,7 @@
                         console.error('Status polling error:', err);
                         // Don't stop polling on errors, but log them
                     });
-            }, 1500);
+            }, 3000); // Poll every 3 seconds to reduce server load
         }
 
         // Fetch and render teams
@@ -471,12 +483,12 @@
                         console.log('Invalid match data structure, rendering fallback');
                         renderFallback();
                     }
-                    document.getElementById('loadingModal').classList.remove('active');
+                    // document.getElementById('loadingModal').classList.remove('active');
                 })
                 .catch(err => {
                     console.error('Error fetching match data:', err);
                     renderFallback();
-                    document.getElementById('loadingModal').classList.remove('active');
+                    // document.getElementById('loadingModal').classList.remove('active');
                 });
         }
 
@@ -538,7 +550,8 @@
                             <span class="player-name">${player.nickname}</span>
                             <span class="badge badge-elo rounded-pill float-end">${elo} ELO</span>
                         </h5>
-                        ${audioLength ? `<p class="mb-0 text-muted" style="font-size: 0.85rem;">🎤 ${audioLength}</p>` : ''}
+                        ${audioLength ? `<p class="mb-0" style="font-size: 0.85rem; color: #ffffff;">${audioLength}</p>` : ''}
+                        ${!audioFile ? `<p class="mb-0" style="font-size: 0.85rem; color: #888888;">User didn't use microphone</p>` : ''}
                     </div>
                     ${audioFile ? `
                     <ul class="list-group list-group-flush">
@@ -599,7 +612,8 @@
                         <span class="player-name">${nickname}</span>
                         ${elo > 0 ? `<span class="badge badge-elo rounded-pill float-end">${elo} ELO</span>` : ''}
                     </h5>
-                    ${audioLength ? `<p class="mb-0 text-muted" style="font-size: 0.85rem;">🎤 ${audioLength}</p>` : ''}
+                    ${audioLength ? `<p class="mb-0" style="font-size: 0.85rem; color: #ffffff;">${audioLength}</p>` : ''}
+                    ${!audioFile ? `<p class="mb-0" style="font-size: 0.85rem; color: #888888;">User didn't use microphone</p>` : ''}
                 </div>
                 ${audioFile ? `
                 <ul class="list-group list-group-flush">
@@ -786,8 +800,9 @@
                 alert('Please select a demo file');
                 return;
             }
-            document.getElementById('loadingModal').classList.add('active');
-            document.querySelector('.loading-text').textContent = 'Uploading...';
+            // Don't show modal - status will be inline
+            // document.getElementById('loadingModal').classList.add('active');
+            // document.querySelector('.loading-text').textContent = 'Uploading...';
             document.getElementById('submitButton').disabled = true;
         });
 
@@ -798,8 +813,9 @@
                 alert('Please enter a valid Faceit matchroom URL');
                 return;
             }
-            document.getElementById('loadingModal').classList.add('active');
-            document.querySelector('.loading-text').textContent = 'Downloading demo...';
+            // Don't show modal - status will be inline
+            // document.getElementById('loadingModal').classList.add('active');
+            // document.querySelector('.loading-text').textContent = 'Downloading demo...';
             document.getElementById('urlSubmitButton').disabled = true;
         });
     </script>
