@@ -230,6 +230,23 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleHome(w http.ResponseWriter, r *http.Request) {
+	// Check if demo_id is in the URL (e.g., /?demo_id=123)
+	queryDemoID := r.URL.Query().Get("demo_id")
+	if queryDemoID != "" {
+		// Set the session cookie automatically
+		http.SetCookie(w, &http.Cookie{
+			Name:     "current_demo_id",
+			Value:    queryDemoID,
+			Path:     "/",
+			MaxAge:   3600 * 2, // 2 hours
+			HttpOnly: false,    // Set to false if your JS needs to read it
+		})
+
+		// Redirect to / to clean up the URL
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
 	// Get current demo ID from session
 	currentDemoID := getCurrentDemoID(r)
 
