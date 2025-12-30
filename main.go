@@ -309,16 +309,36 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Create a unique ID for this demo upload
-	demoID := fmt.Sprintf("demo_%d", time.Now().UnixNano())
-
 	// Extract match ID from filename for instant team loading
 	matchID := storage.ExtractMatchIDFromFilename(header.Filename)
+
+	// Check if we already have this demo processed (cache lookup)
+	if matchID != "" {
+		existingDemo, err := metadataStore.FindDemoByMatchID(matchID, tempFileLifetime)
+		if err == nil && existingDemo != nil {
+			log.Printf("🎯 Cache HIT! Reusing existing demo %s for match %s", existingDemo.DemoID, matchID)
+
+			// Set cookie to existing demo
+			http.SetCookie(w, &http.Cookie{
+				Name:    "current_demo_id",
+				Value:   existingDemo.DemoID,
+				Path:    "/",
+				Expires: time.Now().Add(24 * time.Hour),
+			})
+
+			// Redirect immediately - no need to reprocess!
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
+	}
+
+	// Create a unique ID for this demo upload (cache miss - need to process)
+	demoID := fmt.Sprintf("demo_%d", time.Now().UnixNano())
 	var matchDataJSON string
 
 	// If we found a match ID, prefetch match data for faster UI loading
 	if matchID != "" {
-		log.Printf("Extracted match ID from uploaded file: %s", matchID)
+		log.Printf("Cache MISS - Processing new demo for match ID: %s", matchID)
 		matchData, err := faceitClient.GetMatchData(matchID)
 		if err != nil {
 			log.Printf("Warning: Could not prefetch match data: %v", err)
@@ -460,7 +480,25 @@ func handleDownloadFromURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Starting async download for match ID: %s", matchID)
+	// Check if we already have this demo processed (cache lookup)
+	existingDemo, err := metadataStore.FindDemoByMatchID(matchID, tempFileLifetime)
+	if err == nil && existingDemo != nil {
+		log.Printf("🎯 Cache HIT! Reusing existing demo %s for match %s", existingDemo.DemoID, matchID)
+
+		// Set cookie to existing demo
+		http.SetCookie(w, &http.Cookie{
+			Name:    "current_demo_id",
+			Value:   existingDemo.DemoID,
+			Path:    "/",
+			Expires: time.Now().Add(24 * time.Hour),
+		})
+
+		// Redirect immediately - no need to reprocess!
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	log.Printf("Cache MISS - Starting async download for match ID: %s", matchID)
 
 	// Create a unique demo ID
 	demoID := fmt.Sprintf("demo_%d", time.Now().UnixNano())

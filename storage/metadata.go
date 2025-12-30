@@ -187,6 +187,44 @@ func (s *MetadataStore) UpdateMetadata(metadata *DemoMetadata) error {
 	return os.WriteFile(metadataPath, metadataBytes, 0644)
 }
 
+// FindDemoByMatchID finds an existing demo for a specific match ID
+// Returns the demo if found and not expired (within 2 hours), otherwise returns nil
+func (s *MetadataStore) FindDemoByMatchID(matchID string, maxAge time.Duration) (*DemoMetadata, error) {
+	if matchID == "" {
+		return nil, nil
+	}
+
+	files, err := os.ReadDir(s.OutputDir)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") && !strings.HasPrefix(file.Name(), "player_") {
+			demoID := strings.TrimSuffix(file.Name(), ".json")
+			metadata, err := s.LoadMetadata(demoID)
+			if err != nil {
+				continue // Skip corrupted metadata files
+			}
+
+			// Check if this demo matches the match ID
+			if metadata.MatchID == matchID {
+				// Check if it's still fresh (not expired)
+				age := now.Sub(metadata.UploadTime)
+				if age <= maxAge {
+					log.Printf("Found existing demo for match %s: %s (age: %v)", matchID, demoID, age)
+					return metadata, nil
+				} else {
+					log.Printf("Found expired demo for match %s: %s (age: %v, max: %v)", matchID, demoID, age, maxAge)
+				}
+			}
+		}
+	}
+
+	return nil, nil // Not found
+}
+
 // ExtractMatchIDFromFilename extracts the Faceit match ID from a demo filename
 // Format: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52-1-1.dem or 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52.dem.zst
 // Returns: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52
