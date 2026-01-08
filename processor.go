@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"demovoice/decoder"
 	"fmt"
 	"io"
@@ -101,29 +102,51 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 	fileSizeMB := float64(fileInfo.Size()) / (1024 * 1024)
 	log.Printf("Demo file size: %.2f MB", fileSizeMB)
 
-	// Create buffered reader for faster I/O (16MB buffer for large demo files on fast SSDs)
-	bufferedReader := bufio.NewReaderSize(file, 16*1024*1024)
+	// Load entire file into memory for fastest parsing
+	log.Printf("Loading demo into memory...")
+	loadStart := time.Now()
+	fileData, err := io.ReadAll(bufio.NewReaderSize(file, 16*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read demo file: %v", err)
+	}
+	log.Printf("Loaded %.2f MB into memory in %.2fs", fileSizeMB, time.Since(loadStart).Seconds())
+
+	var demoReader io.Reader = bytes.NewReader(fileData)
 
 	// Check if file is zstd compressed (.dem.zst) and decompress if needed
-	var demoReader io.Reader = bufferedReader
 	if strings.HasSuffix(strings.ToLower(demoPath), ".zst") {
-		log.Printf("Detected zstd compressed demo, decompressing...")
-		zstdDecoder, err := zstd.NewReader(bufferedReader,
+		log.Printf("Decompressing zstd demo...")
+		decompressStart := time.Now()
+
+		// Create decoder with max concurrency from the in-memory data
+		zstdDecoder, err := zstd.NewReader(bytes.NewReader(fileData),
 			zstd.WithDecoderConcurrency(runtime.NumCPU()),
-			zstd.WithDecoderLowmem(false), // Allow more memory for faster decompression
+			zstd.WithDecoderLowmem(false),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create zstd decoder: %v", err)
 		}
-		defer zstdDecoder.Close()
-		demoReader = zstdDecoder
-		log.Printf("Zstd decoder initialized with %d concurrent workers", runtime.NumCPU())
+
+		// Decompress entire file
+		decompressedData, err := io.ReadAll(zstdDecoder)
+		zstdDecoder.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to decompress: %v", err)
+		}
+
+		decompressedMB := float64(len(decompressedData)) / (1024 * 1024)
+		log.Printf("Decompressed %.2f MB -> %.2f MB in %.2fs (%.1fx ratio)",
+			fileSizeMB, decompressedMB, time.Since(decompressStart).Seconds(),
+			decompressedMB/fileSizeMB)
+
+		demoReader = bytes.NewReader(decompressedData)
+		fileSizeMB = decompressedMB
 	}
 
 	// Use optimized parser config for faster parsing
-	// Large MsgQueueBufferSize improves performance with fast I/O
 	parserConfig := dem.DefaultParserConfig
-	parserConfig.MsgQueueBufferSize = 500000 // Large buffer for 16-core + 64GB RAM
+	parserConfig.MsgQueueBufferSize = 1000000        // Very large buffer for 16-core + 64GB RAM
+	parserConfig.DisableMimicSource1Events = true    // Skip Source 1 event mimicking for CS2
 
 	parser := dem.NewParserWithConfig(demoReader, parserConfig)
 

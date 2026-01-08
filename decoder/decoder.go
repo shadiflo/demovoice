@@ -4,16 +4,35 @@ import (
 	"bytes"
 	"encoding/binary"
 	"gopkg.in/hraban/opus.v2"
+	"sync"
 )
 
 const (
 	FrameSize = 480
 )
 
+// Buffer pools to reduce allocations
+var (
+	float32Pool = sync.Pool{
+		New: func() interface{} {
+			buf := make([]float32, FrameSize)
+			return &buf
+		},
+	}
+	chunkPool = sync.Pool{
+		New: func() interface{} {
+			buf := make([]byte, 1024)
+			return &buf
+		},
+	}
+)
+
 type OpusDecoder struct {
 	decoder *opus.Decoder
 
 	currentFrame uint16
+	// Reusable decode buffer
+	decodeBuf []float32
 }
 
 func NewOpusDecoder(sampleRate, channels int) (*OpusDecoder, error) {
@@ -26,6 +45,7 @@ func NewOpusDecoder(sampleRate, channels int) (*OpusDecoder, error) {
 	return &OpusDecoder{
 		decoder:      decoder,
 		currentFrame: 0,
+		decodeBuf:    make([]float32, FrameSize),
 	}, nil
 }
 
@@ -89,15 +109,16 @@ func (d *OpusDecoder) Decode(b []byte) ([]float32, error) {
 }
 
 func (d *OpusDecoder) decodeSteamChunk(b []byte) ([]float32, error) {
-	o := make([]float32, FrameSize)
-
-	n, err := d.decoder.DecodeFloat32(b, o)
+	n, err := d.decoder.DecodeFloat32(b, d.decodeBuf)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return o[:n], nil
+	// Return a copy since we reuse the buffer
+	result := make([]float32, n)
+	copy(result, d.decodeBuf[:n])
+	return result, nil
 }
 
 func (d *OpusDecoder) decodeLoss(samples uint16) ([]float32, error) {
