@@ -96,11 +96,12 @@ func main() {
 	// Handle routes (removed password auth)
 	http.HandleFunc("/", handleHome)
 	http.HandleFunc("/upload", handleUpload)
+	http.HandleFunc("/api/upload", handleAPIUpload) // JSON API for external services
 	http.HandleFunc("/download-from-url", handleDownloadFromURL)
 	http.HandleFunc("/faceit/player", handleFaceitPlayer)
 	http.HandleFunc("/faceit/match", handleFaceitMatch)
 	http.HandleFunc("/status", handleStatus)
-	http.Handle("/output/", http.StripPrefix("/output/", http.FileServer(http.Dir(outputDir))))
+	http.Handle("/output/", http.StripPrefix("/output/", corsHandler(http.FileServer(http.Dir(outputDir)))))
 	http.Handle("/icons/", http.StripPrefix("/icons/", http.FileServer(http.Dir("./icons"))))
 
 	// Configure server with extended timeouts for large file uploads
@@ -160,12 +161,24 @@ type StatusResponse struct {
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
+	// Add CORS headers for API access
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	demoID := r.URL.Query().Get("demo_id")
 	if demoID == "" {
 		// Try to get from cookie
 		demoCookie, err := r.Cookie("current_demo_id")
 		if err != nil {
-			http.Error(w, "Demo ID is required", http.StatusBadRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Demo ID is required"})
 			return
 		}
 		demoID = demoCookie.Value
@@ -420,6 +433,170 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect back to home page immediately
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// corsHandler wraps a handler to add CORS headers
+func corsHandler(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		h.ServeHTTP(w, r)
+	})
+}
+
+// setCORSHeaders adds CORS headers to the response
+func setCORSHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+}
+
+// APIUploadResponse is the JSON response for API uploads
+type APIUploadResponse struct {
+	Success bool   `json:"success"`
+	DemoID  string `json:"demo_id,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleAPIUpload handles demo uploads via JSON API (for external services like faceitgpt.com)
+func handleAPIUpload(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+
+	// Handle preflight
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(APIUploadResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	// Parse the uploaded file
+	file, header, err := r.FormFile("demo")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIUploadResponse{Success: false, Error: "Error receiving file: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	log.Printf("📥 API Upload received: %s (size: %d bytes)", header.Filename, header.Size)
+
+	// Extract match ID from filename for caching
+	matchID := storage.ExtractMatchIDFromFilename(header.Filename)
+
+	// Check cache
+	if matchID != "" {
+		existingDemo, err := metadataStore.FindDemoByMatchID(matchID, tempFileLifetime)
+		if err == nil && existingDemo != nil {
+			log.Printf("🎯 API Cache HIT! Reusing existing demo %s for match %s", existingDemo.DemoID, matchID)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(APIUploadResponse{
+				Success: true,
+				DemoID:  existingDemo.DemoID,
+				Status:  existingDemo.Status,
+			})
+			return
+		}
+	}
+
+	// Create a unique ID for this demo upload
+	demoID := fmt.Sprintf("demo_%d", time.Now().UnixNano())
+
+	// Create temporary file for processing
+	tempPath := filepath.Join(uploadDir, header.Filename)
+	tempFile, err := os.Create(tempPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(APIUploadResponse{Success: false, Error: "Error saving file"})
+		return
+	}
+	defer tempFile.Close()
+
+	// Copy uploaded file to temporary location
+	_, err = io.Copy(tempFile, file)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(APIUploadResponse{Success: false, Error: "Error saving file"})
+		return
+	}
+
+	// Create initial metadata with "processing" status
+	initialMetadata := &storage.DemoMetadata{
+		DemoID:     demoID,
+		Filename:   header.Filename,
+		MatchID:    matchID,
+		Status:     "processing",
+		UploadTime: time.Now(),
+		Players:    []api.PlayerInfo{},
+	}
+	metadataStore.UpdateMetadata(initialMetadata)
+	registerTempFile(demoID + ".json")
+
+	log.Printf("📥 API Upload started processing: %s -> %s", header.Filename, demoID)
+
+	// Process in background
+	go func() {
+		registerUploadedDemo(header.Filename)
+
+		// Process the demo file
+		playerTeams, err := ProcessDemo(tempPath, demoID)
+		if err != nil {
+			log.Printf("❌ API Upload error processing demo %s: %v", demoID, err)
+			initialMetadata, _ := metadataStore.LoadMetadata(demoID)
+			if initialMetadata != nil {
+				initialMetadata.Status = "failed"
+				metadataStore.UpdateMetadata(initialMetadata)
+			}
+			return
+		}
+
+		// Save demo metadata
+		metadata, err := metadataStore.SaveMetadata(demoID, header.Filename)
+		if err != nil {
+			log.Printf("Warning: Failed to save metadata: %v", err)
+		} else {
+			saveTeamMetadata(demoID, playerTeams)
+
+			// Enrich player data
+			for i := range metadata.Players {
+				if metadata.Players[i].Nickname == "" {
+					faceitClient.EnrichPlayerInfo(&metadata.Players[i])
+				}
+			}
+			metadataStore.UpdateMetadata(metadata)
+
+			for _, player := range metadata.Players {
+				registerTempFile(player.AudioFile)
+			}
+		}
+
+		log.Printf("✅ API Upload completed: %s", demoID)
+		os.Remove(tempPath)
+	}()
+
+	// Return immediately with demo_id for status polling
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(APIUploadResponse{
+		Success: true,
+		DemoID:  demoID,
+		Status:  "processing",
+	})
 }
 
 func handleDownloadFromURL(w http.ResponseWriter, r *http.Request) {
