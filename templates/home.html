@@ -365,7 +365,19 @@
                         <li class="list-group-item" id="matchroomButtonContainer">
                             <div class="btn-group col-md-12" id="matchLinks">
                                 <a href="#" class="btn btn-primary" id="matchroomLink" target="_blank">Matchroom</a>
+                                <button class="btn btn-outline-primary" id="shareLobbyBtn" onclick="shareLobby()">
+                                    <i class="fas fa-share-alt"></i> Share
+                                </button>
                             </div>
+                        </li>
+                        <li class="list-group-item" id="shareUrlContainer" style="display: none;">
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="shareUrlInput" readonly>
+                                <button class="btn btn-outline-primary" onclick="copyShareUrl()">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                            <small class="text-muted" id="shareCopyFeedback"></small>
                         </li>
                         <li class="list-group-item">
                             <form action="/" method="get" class="mb-0">
@@ -862,6 +874,30 @@
                         canvasCtx.fillRect(i * (w / 80), (h - barH) / 2, w / 80 - 1, barH);
                     }
                 });
+        }
+
+        // Share lobby functions
+        function shareLobby() {
+            const shareUrl = window.location.origin + '/?demo_id=' + demoID;
+            document.getElementById('shareUrlInput').value = shareUrl;
+            document.getElementById('shareUrlContainer').style.display = 'block';
+            document.getElementById('shareCopyFeedback').textContent = '';
+        }
+
+        function copyShareUrl() {
+            const shareUrl = document.getElementById('shareUrlInput').value;
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                document.getElementById('shareCopyFeedback').textContent = 'Copied to clipboard!';
+                document.getElementById('shareCopyFeedback').style.color = '#4a90e2';
+                setTimeout(() => {
+                    document.getElementById('shareCopyFeedback').textContent = '';
+                }, 2000);
+            }).catch(() => {
+                // Fallback for older browsers
+                document.getElementById('shareUrlInput').select();
+                document.execCommand('copy');
+                document.getElementById('shareCopyFeedback').textContent = 'Copied!';
+            });
         }
 
         // Initialize on load

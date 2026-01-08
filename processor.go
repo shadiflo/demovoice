@@ -72,12 +72,20 @@ type VoiceProcessingJob struct {
 
 // ProcessDemo processes a demo file and extracts voice data with optimizations
 // The demoID parameter is used to associate voice files with a specific demo
-func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
+func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, err error) {
+	// Recover from panics in the parser
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic during demo processing: %v", r)
+			log.Printf("❌ Recovered from panic in ProcessDemo: %v", r)
+		}
+	}()
+
 	startTime := time.Now()
 
 	// Pre-allocate maps with expected capacity (10 players typical)
 	voiceDataPerPlayer := make(map[string][][]byte, 10)
-	playerTeams := make(map[string]int, 10)
+	playerTeams = make(map[string]int, 10)
 	var format string
 
 	// Use separate mutexes per player to reduce contention
@@ -108,6 +116,9 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 	fileData, err := io.ReadAll(bufio.NewReaderSize(file, 16*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read demo file: %v", err)
+	}
+	if len(fileData) < 100 {
+		return nil, fmt.Errorf("demo file too small or empty: %d bytes", len(fileData))
 	}
 	log.Printf("Loaded %.2f MB into memory in %.2fs", fileSizeMB, time.Since(loadStart).Seconds())
 
@@ -145,7 +156,7 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 
 	// Use optimized parser config for faster parsing
 	parserConfig := dem.DefaultParserConfig
-	parserConfig.MsgQueueBufferSize = 1000000        // Very large buffer for 16-core + 64GB RAM
+	parserConfig.MsgQueueBufferSize = 128000         // Reasonable buffer size
 	parserConfig.DisableMimicSource1Events = true    // Skip Source 1 event mimicking for CS2
 
 	parser := dem.NewParserWithConfig(demoReader, parserConfig)
