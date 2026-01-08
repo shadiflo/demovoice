@@ -224,6 +224,64 @@
                 transform: rotate(360deg);
             }
         }
+
+        /* Processing spinner - large centered */
+        .processing-spinner {
+            width: 80px;
+            height: 80px;
+            border: 4px solid #3a3a3a;
+            border-top: 4px solid #4a90e2;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 2rem auto;
+        }
+
+        /* Skeleton loading animation */
+        .skeleton {
+            background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .skeleton-card {
+            background: #2a2a2a;
+            border: 2px solid #3a3a3a;
+            border-radius: 8px;
+            margin-top: 0.5rem;
+            padding: 0.75rem;
+        }
+
+        .skeleton-name {
+            height: 20px;
+            width: 60%;
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+        }
+
+        .skeleton-elo {
+            height: 20px;
+            width: 80px;
+            border-radius: 12px;
+            float: right;
+        }
+
+        .skeleton-waveform {
+            height: 40px;
+            width: 100%;
+            border-radius: 4px;
+            margin: 0.5rem 0;
+        }
+
+        .skeleton-buttons {
+            height: 28px;
+            width: 100%;
+            border-radius: 4px;
+        }
     </style>
 </head>
 
@@ -292,14 +350,18 @@
 
             <!-- Center Options -->
             <span class="col-md-4 py-2" id="optionsContainer">
-                <div class="card mt-1">
+                <!-- Processing Status - Large Spinner -->
+                <div class="card mt-1" id="processingCard" style="display: none;">
+                    <div class="card-body text-center py-4">
+                        <div class="processing-spinner"></div>
+                        <h5 style="color: #ffffff;" id="processingTitle">Processing Demo</h5>
+                        <p class="mb-0" style="color: #888;" id="processingText">Extracting voice data...</p>
+                    </div>
+                </div>
+
+                <!-- Normal Options - Shown when complete -->
+                <div class="card mt-1" id="optionsCard">
                     <ul class="list-group list-group-flush">
-                        <li class="list-group-item text-center" id="statusDisplay" style="display: none;">
-                            <div class="spinner-border text-primary" role="status" style="width: 2rem; height: 2rem;">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <p class="mb-0 mt-2" id="statusText" style="color: #ffffff;">Processing demo...</p>
-                        </li>
                         <li class="list-group-item" id="matchroomButtonContainer">
                             <div class="btn-group col-md-12" id="matchLinks">
                                 <a href="#" class="btn btn-primary" id="matchroomLink" target="_blank">Matchroom</a>
@@ -393,14 +455,34 @@
         }
         updateAudioMap();
 
+        // Generate skeleton player cards HTML
+        function generateSkeletonCards(count) {
+            let html = '';
+            for (let i = 0; i < count; i++) {
+                html += `
+                <div class="skeleton-card">
+                    <div style="overflow: hidden;">
+                        <div class="skeleton skeleton-name"></div>
+                        <div class="skeleton skeleton-elo"></div>
+                    </div>
+                    <div class="skeleton skeleton-waveform"></div>
+                    <div class="skeleton skeleton-buttons"></div>
+                </div>`;
+            }
+            return html;
+        }
+
         // Status polling while processing
         function startStatusPolling() {
             if (demoStatus === 'completed') return;
 
-            // Show inline status display instead of modal
-            document.getElementById('statusDisplay').style.display = 'block';
-            document.getElementById('matchroomButtonContainer').style.display = 'none';
-            document.getElementById('statusText').textContent = 'Processing demo...';
+            // Show processing spinner, hide options
+            document.getElementById('processingCard').style.display = 'block';
+            document.getElementById('optionsCard').style.display = 'none';
+
+            // Show skeleton player cards (5 per team)
+            document.getElementById('team1Container').innerHTML = generateSkeletonCards(5);
+            document.getElementById('team2Container').innerHTML = generateSkeletonCards(5);
 
             statusPollInterval = setInterval(() => {
                 fetch('/status?demo_id=' + demoID)
@@ -414,9 +496,9 @@
                         if (data.status === 'completed') {
                             clearInterval(statusPollInterval);
 
-                            // Hide status display, show matchroom button
-                            document.getElementById('statusDisplay').style.display = 'none';
-                            document.getElementById('matchroomButtonContainer').style.display = 'block';
+                            // Hide processing spinner, show options
+                            document.getElementById('processingCard').style.display = 'none';
+                            document.getElementById('optionsCard').style.display = 'block';
 
                             // Update players if available
                             if (data.players && data.players.length > 0) {
@@ -440,7 +522,11 @@
                             // document.getElementById('loadingModal').classList.remove('active');
                         } else if (data.status === 'failed') {
                             clearInterval(statusPollInterval);
-                            // document.getElementById('loadingModal').classList.remove('active');
+                            // Hide processing spinner, show options
+                            document.getElementById('processingCard').style.display = 'none';
+                            document.getElementById('optionsCard').style.display = 'block';
+                            document.getElementById('processingTitle').textContent = 'Processing Failed';
+                            document.getElementById('processingText').textContent = 'Could not extract voice data';
                             alert('Processing failed.');
                         } else {
                             console.log('Still processing... status:', data.status);
