@@ -101,8 +101,8 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 	fileSizeMB := float64(fileInfo.Size()) / (1024 * 1024)
 	log.Printf("Demo file size: %.2f MB", fileSizeMB)
 
-	// Create buffered reader for faster I/O (4MB buffer for large demo files)
-	bufferedReader := bufio.NewReaderSize(file, 4*1024*1024)
+	// Create buffered reader for faster I/O (16MB buffer for large demo files on fast SSDs)
+	bufferedReader := bufio.NewReaderSize(file, 16*1024*1024)
 
 	// Check if file is zstd compressed (.dem.zst) and decompress if needed
 	var demoReader io.Reader = bufferedReader
@@ -120,7 +120,28 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 		log.Printf("Zstd decoder initialized with %d concurrent workers", runtime.NumCPU())
 	}
 
-	parser := dem.NewParser(demoReader)
+	// Use optimized parser config for faster parsing
+	// Large MsgQueueBufferSize improves performance with fast I/O
+	parserConfig := dem.DefaultParserConfig
+	parserConfig.MsgQueueBufferSize = 500000 // Large buffer for 16-core + 64GB RAM
+
+	parser := dem.NewParserWithConfig(demoReader, parserConfig)
+
+	// Progress logging goroutine
+	stopProgress := make(chan bool)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				progress := parser.Progress()
+				log.Printf("⏳ Parsing progress: %.1f%% (tick %d)", progress*100, parser.CurrentFrame())
+			case <-stopProgress:
+				return
+			}
+		}
+	}()
 
 	// Optimize parser - only register voice data handler
 	// Skip other events to reduce parsing overhead
@@ -161,6 +182,7 @@ func ProcessDemo(demoPath string, demoID string) (map[string]int, error) {
 	// Parse the full demo file
 	log.Printf("Starting demo parse for %s (%.2f MB)...", demoID, fileSizeMB)
 	err = parser.ParseToEnd()
+	close(stopProgress) // Stop progress logging
 	parseTime := time.Since(startTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse demo: %v", err)

@@ -11,9 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
-	"runtime/debug"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,38 +33,6 @@ func getExecutableDir() string {
 	return filepath.Dir(ex)
 }
 
-// applyRuntimeSettings configures Go runtime performance settings
-func applyRuntimeSettings() {
-	// Set GOMAXPROCS from environment (number of OS threads)
-	if maxProcs := os.Getenv("GOMAXPROCS"); maxProcs != "" {
-		if n, err := strconv.Atoi(maxProcs); err == nil && n > 0 {
-			runtime.GOMAXPROCS(n)
-			log.Printf("Set GOMAXPROCS to %d", n)
-		}
-	} else {
-		// Default to all available CPUs
-		numCPU := runtime.NumCPU()
-		runtime.GOMAXPROCS(numCPU)
-		log.Printf("Using all %d CPU cores", numCPU)
-	}
-
-	// Set GC percentage from environment
-	if gogc := os.Getenv("GOGC"); gogc != "" {
-		if n, err := strconv.Atoi(gogc); err == nil {
-			debug.SetGCPercent(n)
-			log.Printf("Set GOGC to %d%%", n)
-		}
-	}
-
-	// Set memory limit from environment (Go 1.19+)
-	if memLimit := os.Getenv("GOMEMLIMIT"); memLimit != "" {
-		debug.SetMemoryLimit(-1) // This would parse the limit, but we'll use env var directly
-		log.Printf("Memory limit: %s (applied via GOMEMLIMIT env var)", memLimit)
-	}
-
-	log.Printf("Runtime: %d CPUs available, %d GOMAXPROCS configured",
-		runtime.NumCPU(), runtime.GOMAXPROCS(-1))
-}
 
 // Initialize global clients
 var (
@@ -95,9 +60,6 @@ func init() {
 	if err := godotenv.Load(envPath); err != nil {
 		log.Printf("Warning: Error loading .env file from %s: %v", envPath, err)
 	}
-
-	// Apply Go runtime performance settings from environment
-	applyRuntimeSettings()
 
 	// Create required directories
 	os.MkdirAll(uploadDir, 0755)
