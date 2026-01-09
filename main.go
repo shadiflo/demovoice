@@ -21,7 +21,7 @@ import (
 var (
 	uploadDir        string
 	outputDir        string
-	tempFileLifetime = 2 * time.Hour // Files will be deleted after 2 hours
+	tempFileLifetime = 10 * time.Minute // Files will be deleted after 10 minutes
 )
 
 func getExecutableDir() string {
