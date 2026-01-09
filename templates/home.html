@@ -393,8 +393,8 @@
                                 </div>
                             </form>
                         </li>
-                        <li class="list-group-item" id="chatLogButtonContainer"
-                            style="{{if .CurrentDemo.ChatLog}}display: block;{{else}}display: none;{{end}}">
+                        <li class="list-group-item {{if not .CurrentDemo.ChatLog}}d-none{{end}}"
+                            id="chatLogButtonContainer">
                             <button onclick="viewChatLog('{{.CurrentDemo.ChatLog}}')" id="chatLogBtn"
                                 class="btn btn-outline-secondary w-100">
                                 <i class="fas fa-comments"></i> View Chat Logs

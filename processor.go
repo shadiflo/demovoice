@@ -198,7 +198,7 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 	// Also listen for SayText and SayText2 directly as fallback/redundancy
 	// Also listen for SayText2 directly as fallback/redundancy for missing messages
 	// This helps catch messages that the high-level event might miss (e.g. some early game chat)
-	parser.RegisterNetMessageHandler(func(m *msgs2.CUserMsg_SayText2) {
+	parser.RegisterNetMessageHandler(func(m *msgs2.CCSUsrMsg_SayText2) {
 		// Log.Printf("Debug SayText2: %v", m)
 
 		// Basic extraction for SayText2
