@@ -194,30 +194,7 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 		chatLogs = append(chatLogs, fmt.Sprintf("[%s] %s%s: %s", parser.CurrentTime().String(), prefix, senderName, e.Text))
 	})
 
-	parser.RegisterEventHandler(func(e events.SayText2) {
-		if len(e.Params) < 2 {
-			return
-		}
 
-		sender := e.Params[0]
-		msgText := e.Params[1]
-		
-		shouldAdd := true
-		if len(chatLogs) > 0 {
-			lastLog := chatLogs[len(chatLogs)-1]
-			if strings.Contains(lastLog, msgText) {
-				shouldAdd = false
-			}
-		}
-
-		if shouldAdd {
-			prefix := "[ALL]"
-			if !e.IsChatAll {
-				prefix = "[TEAM]"
-			}
-			chatLogs = append(chatLogs, fmt.Sprintf("[%s] %s %s: %s", parser.CurrentTime().String(), prefix, sender, msgText))
-		}
-	})
 
 	// Optimize parser - only register voice data handler
 	// Skip other events to reduce parsing overhead
