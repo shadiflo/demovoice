@@ -282,19 +282,6 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 		}
 	}
 
-	if len(filteredPlayers) == 0 {
-		log.Printf("No voice data found in demo %s", demoID)
-		return nil, nil
-	}
-
-	// Process voice data in parallel
-	err = processVoiceDataParallel(filteredPlayers, format, demoID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Return team info instead of saving it directly
-	
 	// Save chat logs
 	if len(chatLogs) > 0 {
 		chatLogPath := filepath.Join(outputDir, demoID+"_chat.txt")
@@ -308,6 +295,17 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 		} else {
 			log.Printf("Failed to save chat logs: %v", err)
 		}
+	}
+
+	if len(filteredPlayers) == 0 {
+		log.Printf("No voice data found in demo %s", demoID)
+		return playerTeams, nil
+	}
+
+	// Process voice data in parallel
+	err = processVoiceDataParallel(filteredPlayers, format, demoID)
+	if err != nil {
+		return nil, err
 	}
 
 	return playerTeams, nil
