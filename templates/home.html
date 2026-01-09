@@ -831,10 +831,13 @@
         }
 
         // View chat log
-        let currentChatLogText = '';
+        var currentChatLogText = ''; // Use var to avoid hoisting issues
 
         function viewChatLog(filename) {
-            if (!filename) return;
+            if (!filename || filename.trim() === '') {
+                alert('No chat log available for this demo');
+                return;
+            }
 
             const content = document.getElementById('chatLogContent');
             content.textContent = 'Loading chat logs...';
@@ -845,12 +848,12 @@
 
             fetch('/output/' + filename)
                 .then(r => {
-                    if (!r.ok) throw new Error('Failed to load chat log');
+                    if (!r.ok) throw new Error('Failed to load chat log file');
                     return r.text();
                 })
                 .then(text => {
                     currentChatLogText = text;
-                    if (!text.trim()) {
+                    if (!text || !text.trim()) {
                         content.textContent = 'No chat messages recorded in this demo.';
                     } else {
                         content.textContent = text;
@@ -858,7 +861,8 @@
                 })
                 .catch(err => {
                     console.error('Error loading chat:', err);
-                    content.textContent = 'Error loading chat logs: ' + err.message;
+                    currentChatLogText = '';
+                    content.textContent = 'Error loading chat logs: ' + (err.message || 'Unknown error');
                 });
         }
 
@@ -866,7 +870,10 @@
             const filter = document.getElementById('chatFilterInput').value.toLowerCase();
             const content = document.getElementById('chatLogContent');
 
-            if (!currentChatLogText) return;
+            if (!currentChatLogText) {
+                content.textContent = 'No chat log loaded yet';
+                return;
+            }
 
             if (!filter) {
                 content.textContent = currentChatLogText;
@@ -885,8 +892,14 @@
 
         function copyChatLog() {
             const content = document.getElementById('chatLogContent').textContent;
+            if (!content || content.includes('Error') || content.includes('No chat')) {
+                alert('No chat content to copy');
+                return;
+            }
             navigator.clipboard.writeText(content).then(() => {
                 alert('Chat logs copied to clipboard!');
+            }).catch(() => {
+                alert('Failed to copy chat logs');
             });
         }
 
