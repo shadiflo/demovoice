@@ -28,6 +28,7 @@ type DemoMetadata struct {
 	Map           string           `json:"map,omitempty"`
 	Competition   string           `json:"competition,omitempty"`
 	MatchDataJSON string           `json:"match_data_json,omitempty"` // Cached match data for faster loading
+	ChatLog       string           `json:"chat_log,omitempty"`        // Filename of the chat log
 }
 
 // NewMetadataStore creates a new metadata store
@@ -69,6 +70,13 @@ func (s *MetadataStore) SaveMetadata(demoID, filename string) (*DemoMetadata, er
 	// Log for debugging
 	log.Printf("Found %d player voices for demo ID %s", len(players), demoID)
 
+	// Check for chat logs
+	var chatLog string
+	chatLogPath := demoID + "_chat.txt"
+	if _, err := os.Stat(filepath.Join(s.OutputDir, chatLogPath)); err == nil {
+		chatLog = chatLogPath
+	}
+
 	// Extract match ID from filename if possible
 	// Format: 1-51dcaf59-f8aa-4df1-b20e-168f4b590c52-1-1.dem
 	matchID := ExtractMatchIDFromFilename(filename)
@@ -81,6 +89,7 @@ func (s *MetadataStore) SaveMetadata(demoID, filename string) (*DemoMetadata, er
 		UploadTime: time.Now(),
 		MatchID:    matchID,
 		Status:     "completed",
+		ChatLog:    chatLog,
 	}
 
 	metadataBytes, err := json.Marshal(metadata)

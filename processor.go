@@ -20,6 +20,7 @@ import (
 	"github.com/go-audio/wav"
 	"github.com/klauspost/compress/zstd"
 	dem "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs"
+	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/events"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/msgs2"
 )
 
@@ -87,6 +88,7 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 	voiceDataPerPlayer := make(map[string][][]byte, 10)
 	playerTeams = make(map[string]int, 10)
 	var format string
+	var chatLogs []string
 
 	// Use separate mutexes per player to reduce contention
 	playerMutexes := make(map[string]*sync.Mutex, 10)
@@ -178,6 +180,22 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 	}()
 
 	// Optimize parser - only register voice data handler
+	// Register chat message handler
+	parser.RegisterEventHandler(func(e events.ChatMessage) {
+		senderName := "Console"
+		if e.Sender != nil {
+			senderName = e.Sender.Name
+		}
+		
+		prefix := ""
+		if !e.IsChatAll {
+			prefix = "(TEAM) "
+		}
+		
+		chatLogs = append(chatLogs, fmt.Sprintf("[%s] %s%s: %s", parser.CurrentTime().String(), prefix, senderName, e.Text))
+	})
+
+	// Optimize parser - only register voice data handler
 	// Skip other events to reduce parsing overhead
 	parser.RegisterNetMessageHandler(func(m *msgs2.CSVCMsg_VoiceData) {
 		// Early filtering - skip empty voice data
@@ -252,6 +270,22 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 	}
 
 	// Return team info instead of saving it directly
+	
+	// Save chat logs
+	if len(chatLogs) > 0 {
+		chatLogPath := filepath.Join(outputDir, demoID+"_chat.txt")
+		f, err := os.Create(chatLogPath)
+		if err == nil {
+			defer f.Close()
+			for _, line := range chatLogs {
+				f.WriteString(line + "\n")
+			}
+			log.Printf("Saved %d chat messages to %s", len(chatLogs), chatLogPath)
+		} else {
+			log.Printf("Failed to save chat logs: %v", err)
+		}
+	}
+
 	return playerTeams, nil
 }
 
@@ -386,6 +420,9 @@ func cleanupOldDemoFiles(demoID string) {
 			os.Remove(filepath.Join(outputDir, file.Name()))
 		}
 	}
+	
+	// Delete chat logs
+	os.Remove(filepath.Join(outputDir, demoID+"_chat.txt"))
 
 	log.Printf("Cleaned up old files for demo ID: %s", demoID)
 }

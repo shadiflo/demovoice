@@ -244,8 +244,13 @@
         }
 
         @keyframes shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
+            0% {
+                background-position: 200% 0;
+            }
+
+            100% {
+                background-position: -200% 0;
+            }
         }
 
         .skeleton-card {
@@ -388,6 +393,16 @@
                                 </div>
                             </form>
                         </li>
+                        <li class="list-group-item" id="chatLogButtonContainer"
+                            style="{{if .CurrentDemo.ChatLog}}display: block;{{else}}display: none;{{end}}">
+                            <button onclick="viewChatLog('{{.CurrentDemo.ChatLog}}')" id="chatLogBtn"
+                                class="btn btn-outline-secondary w-100">
+                                <i class="fas fa-comments"></i> View Chat Logs
+                            </button>
+                            <small class="text-muted d-block text-center mt-1" style="font-size: 0.7rem;">
+                                From demo events (server/client commands may vary)
+                            </small>
+                        </li>
                     </ul>
                 </div>
             </span>
@@ -418,6 +433,27 @@
         <div class="loading-content">
             <div class="loading-spinner"></div>
             <div class="loading-text">Processing...</div>
+        </div>
+    </div>
+
+    <!-- Chat Log Modal -->
+    <div class="modal fade" id="chatLogModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content" style="background: #2a2a2a; border: 1px solid #3a3a3a; color: #e0e0e0;">
+                <div class="modal-header" style="border-bottom: 1px solid #3a3a3a;">
+                    <h5 class="modal-title">Match Chat Logs</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <pre id="chatLogContent" class="m-0 p-3"
+                        style="max-height: 60vh; overflow-y: auto; background: #1a1a1a; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.9rem; color: #a0a0a0; white-space: pre-wrap;"></pre>
+                </div>
+                <div class="modal-footer" style="border-top: 1px solid #3a3a3a;">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="copyChatLog()">Copy All</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -517,6 +553,16 @@
                                 players = data.players;
                                 updateAudioMap();
                                 console.log('Updated players:', players.length, 'Audio map:', audioMap);
+                            }
+
+                            // Show chat log button if available
+                            if (data.chat_log) {
+                                const btnContainer = document.getElementById('chatLogButtonContainer');
+                                const btn = document.getElementById('chatLogBtn');
+                                if (btnContainer && btn) {
+                                    btn.setAttribute('onclick', `viewChatLog('${data.chat_log}')`);
+                                    btnContainer.style.display = 'block';
+                                }
                             }
 
                             // Always try to render, even with no players
@@ -779,6 +825,44 @@
             const x = event.clientX - rect.left;
             audio.currentTime = (x / rect.width) * audio.duration;
         }
+
+        // View chat log
+        function viewChatLog(filename) {
+            if (!filename) return;
+
+            const content = document.getElementById('chatLogContent');
+            content.textContent = 'Loading chat logs...';
+
+            const modal = new bootstrap.Modal(document.getElementById('chatLogModal'));
+            modal.show();
+
+            fetch('/output/' + filename)
+                .then(r => {
+                    if (!r.ok) throw new Error('Failed to load chat log');
+                    return r.text();
+                })
+                .then(text => {
+                    if (!text.trim()) {
+                        content.textContent = 'No chat messages recorded in this demo.';
+                    } else {
+                        content.textContent = text;
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading chat:', err);
+                    content.textContent = 'Error loading chat logs: ' + err.message;
+                });
+        }
+
+        function copyChatLog() {
+            const content = document.getElementById('chatLogContent').textContent;
+            navigator.clipboard.writeText(content).then(() => {
+                alert('Chat logs copied to clipboard!');
+            });
+        }
+
+
+        // Initialize audio players with waveforms
 
 
         // Initialize audio players with waveforms

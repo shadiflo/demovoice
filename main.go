@@ -158,6 +158,7 @@ type StatusResponse struct {
 	DemoID  string           `json:"demo_id"`
 	MatchID string           `json:"match_id"`
 	Players []api.PlayerInfo `json:"players"`
+	ChatLog string           `json:"chat_log,omitempty"`
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +202,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		DemoID:  metadata.DemoID,
 		MatchID: metadata.MatchID,
 		Players: metadata.Players,
+		ChatLog: metadata.ChatLog,
 	})
 }
 
@@ -481,6 +483,19 @@ func handleAPIUpload(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(APIUploadResponse{Success: false, Error: "Method not allowed"})
 		return
+	}
+
+	// Verify API key
+	expectedAPIKey := os.Getenv("API_KEY")
+	if expectedAPIKey != "" {
+		providedKey := r.Header.Get("X-API-Key")
+		if providedKey != expectedAPIKey {
+			log.Printf("⚠️  API Upload rejected: Invalid or missing API key")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(APIUploadResponse{Success: false, Error: "Unauthorized: Invalid API key"})
+			return
+		}
 	}
 
 	// Parse the uploaded file
