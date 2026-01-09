@@ -198,41 +198,28 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 	// Also listen for SayText and SayText2 directly as fallback/redundancy
 	// Also listen for SayText2 directly as fallback/redundancy for missing messages
 	// This helps catch messages that the high-level event might miss (e.g. some early game chat)
-	parser.RegisterNetMessageHandler(func(m *msgs2.CCSUsrMsg_SayText2) {
-		// Log.Printf("Debug SayText2: %v", m)
-
-		// Basic extraction for SayText2
-		if len(m.Params) >= 2 {
-			// Params[0] is usually the sender name (with formatting), Params[1] is the message
-			// Sometimes the format is different depending on the message type (Cstrike_Chat_All etc)
-			
-			// Simple heuristic to avoid duplicates: check if we just added this message
-			// via the event handler. If the last message in chatLogs contains this text, skip it.
-			msgText := m.Params[1]
-			
-			// Clean up control characters if needed
-			// msgText = strings.TrimSpace(msgText) 
-
-			shouldAdd := true
-			if len(chatLogs) > 0 {
-				lastLog := chatLogs[len(chatLogs)-1]
-				if strings.Contains(lastLog, msgText) {
-					shouldAdd = false
-				}
+	// Also listen for SayText2 event directly as fallback/redundancy
+	// This helps catch messages that the high-level ChatMessage event might miss
+	parser.RegisterEventHandler(func(e events.SayText2) {
+		// Simple heuristic to avoid duplicates: check if we just added this message
+		// via the ChatMessage event handler.
+		msgText := e.Msg
+		sender := e.SenderName
+		
+		shouldAdd := true
+		if len(chatLogs) > 0 {
+			lastLog := chatLogs[len(chatLogs)-1]
+			if strings.Contains(lastLog, msgText) {
+				shouldAdd = false
 			}
+		}
 
-			if shouldAdd {
-				sender := m.Params[0] // Raw sender name, might include color codes
-				// Strip color codes if possible, or just accept them for now
-				
-				// Try to identify if it's team chat based on MsgName
-				prefix := "[ALL]"
-				if m.MsgName != nil && strings.Contains(*m.MsgName, "_Team") {
-					prefix = "[TEAM]"
-				}
-
-				chatLogs = append(chatLogs, fmt.Sprintf("[%s] %s %s: %s", parser.CurrentTime().String(), prefix, sender, msgText))
+		if shouldAdd {
+			prefix := "[ALL]"
+			if !e.IsChatAll {
+				prefix = "[TEAM]"
 			}
+			chatLogs = append(chatLogs, fmt.Sprintf("[%s] %s %s: %s", parser.CurrentTime().String(), prefix, sender, msgText))
 		}
 	})
 
