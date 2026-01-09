@@ -180,19 +180,15 @@ func ProcessDemo(demoPath string, demoID string, chatOnly bool) (playerTeams map
 		}
 	}()
 
-	// Optimize parser - only register voice data handler
+	// Register chat message handler
 	parser.RegisterEventHandler(func(e events.ChatMessage) {
 		senderName := "Console"
 		if e.Sender != nil {
 			senderName = e.Sender.Name
 		}
-		
-		prefix := "[ALL]"
-		if !e.IsChatAll {
-			prefix = "[TEAM]"
-		}
-		
-		chatLogs = append(chatLogs, fmt.Sprintf("[%s] %s%s: %s", parser.CurrentTime().String(), prefix, senderName, e.Text))
+
+		// Note: FACEIT demos only contain all chat, not team chat
+		chatLogs = append(chatLogs, fmt.Sprintf("[%s] %s: %s", parser.CurrentTime().String(), senderName, e.Text))
 	})
 
 
