@@ -73,7 +73,8 @@ type VoiceProcessingJob struct {
 
 // ProcessDemo processes a demo file and extracts voice data with optimizations
 // The demoID parameter is used to associate voice files with a specific demo
-func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, err error) {
+// If chatOnly is true, only chat logs are extracted (much faster, no voice processing)
+func ProcessDemo(demoPath string, demoID string, chatOnly bool) (playerTeams map[string]int, err error) {
 	// Recover from panics in the parser
 	defer func() {
 		if r := recover(); r != nil {
@@ -196,41 +197,44 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 
 
 
-	// Optimize parser - only register voice data handler
-	// Skip other events to reduce parsing overhead
-	parser.RegisterNetMessageHandler(func(m *msgs2.CSVCMsg_VoiceData) {
-		// Early filtering - skip empty voice data
-		if len(m.Audio.VoiceData) == 0 {
-			return
-		}
-
-		// Track packet count for progress
-		atomic.AddInt64(&voicePacketCount, 1)
-
-		// Get the users Steam ID 64
-		steamId := strconv.Itoa(int(m.GetXuid()))
-		format = m.Audio.Format.String()
-
-		// Get or create player-specific mutex
-		mapMutex.RLock()
-		playerMutex, exists := playerMutexes[steamId]
-		mapMutex.RUnlock()
-
-		if !exists {
-			mapMutex.Lock()
-			if _, exists = playerMutexes[steamId]; !exists {
-				playerMutexes[steamId] = &sync.Mutex{}
-				voiceDataPerPlayer[steamId] = make([][]byte, 0, 256) // Pre-allocate expected voice packets
+	// Only register voice handler if not chat-only mode
+	if !chatOnly {
+		// Optimize parser - only register voice data handler
+		// Skip other events to reduce parsing overhead
+		parser.RegisterNetMessageHandler(func(m *msgs2.CSVCMsg_VoiceData) {
+			// Early filtering - skip empty voice data
+			if len(m.Audio.VoiceData) == 0 {
+				return
 			}
-			playerMutex = playerMutexes[steamId]
-			mapMutex.Unlock()
-		}
 
-		// Lock only this player's data
-		playerMutex.Lock()
-		voiceDataPerPlayer[steamId] = append(voiceDataPerPlayer[steamId], m.Audio.VoiceData)
-		playerMutex.Unlock()
-	})
+			// Track packet count for progress
+			atomic.AddInt64(&voicePacketCount, 1)
+
+			// Get the users Steam ID 64
+			steamId := strconv.Itoa(int(m.GetXuid()))
+			format = m.Audio.Format.String()
+
+			// Get or create player-specific mutex
+			mapMutex.RLock()
+			playerMutex, exists := playerMutexes[steamId]
+			mapMutex.RUnlock()
+
+			if !exists {
+				mapMutex.Lock()
+				if _, exists = playerMutexes[steamId]; !exists {
+					playerMutexes[steamId] = &sync.Mutex{}
+					voiceDataPerPlayer[steamId] = make([][]byte, 0, 256) // Pre-allocate expected voice packets
+				}
+				playerMutex = playerMutexes[steamId]
+				mapMutex.Unlock()
+			}
+
+			// Lock only this player's data
+			playerMutex.Lock()
+			voiceDataPerPlayer[steamId] = append(voiceDataPerPlayer[steamId], m.Audio.VoiceData)
+			playerMutex.Unlock()
+		})
+	}
 
 	// Parse the full demo file
 	log.Printf("Starting demo parse for %s (%.2f MB)...", demoID, fileSizeMB)
@@ -272,6 +276,12 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 		} else {
 			log.Printf("Failed to save chat logs: %v", err)
 		}
+	}
+
+	// If chat-only mode, skip voice processing entirely
+	if chatOnly {
+		log.Printf("Chat-only mode: Skipping voice processing for demo %s", demoID)
+		return playerTeams, nil
 	}
 
 	if len(filteredPlayers) == 0 {

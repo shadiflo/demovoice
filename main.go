@@ -369,8 +369,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		// Register uploaded demo for cleanup
 		registerUploadedDemo(header.Filename)
 
-		// Process the demo file
-		playerTeams, err := ProcessDemo(tempPath, demoID)
+		// Process the demo file (not chat-only for web uploads)
+		playerTeams, err := ProcessDemo(tempPath, demoID, false)
 		if err != nil {
 			log.Printf("Error processing demo %s: %v", demoID, err)
 			// Update status to failed
@@ -462,10 +462,11 @@ func setCORSHeaders(w http.ResponseWriter) {
 
 // APIUploadResponse is the JSON response for API uploads
 type APIUploadResponse struct {
-	Success bool   `json:"success"`
-	DemoID  string `json:"demo_id,omitempty"`
-	Status  string `json:"status,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Success  bool   `json:"success"`
+	DemoID   string `json:"demo_id,omitempty"`
+	Status   string `json:"status,omitempty"`
+	Error    string `json:"error,omitempty"`
+	ChatOnly bool   `json:"chat_only,omitempty"`
 }
 
 // handleAPIUpload handles demo uploads via JSON API (for external services like faceitgpt.com)
@@ -509,6 +510,12 @@ func handleAPIUpload(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	log.Printf("📥 API Upload received: %s (size: %d bytes)", header.Filename, header.Size)
+
+	// Check if chat-only mode is requested
+	chatOnly := r.URL.Query().Get("chat_only") == "true"
+	if chatOnly {
+		log.Printf("📋 Chat-only mode requested - skipping voice processing")
+	}
 
 	// Extract match ID from filename for caching
 	matchID := storage.ExtractMatchIDFromFilename(header.Filename)
@@ -570,7 +577,7 @@ func handleAPIUpload(w http.ResponseWriter, r *http.Request) {
 		registerUploadedDemo(header.Filename)
 
 		// Process the demo file
-		playerTeams, err := ProcessDemo(tempPath, demoID)
+		playerTeams, err := ProcessDemo(tempPath, demoID, chatOnly)
 		if err != nil {
 			log.Printf("❌ API Upload error processing demo %s: %v", demoID, err)
 			initialMetadata, _ := metadataStore.LoadMetadata(demoID)
@@ -608,9 +615,10 @@ func handleAPIUpload(w http.ResponseWriter, r *http.Request) {
 	// Return immediately with demo_id for status polling
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(APIUploadResponse{
-		Success: true,
-		DemoID:  demoID,
-		Status:  "processing",
+		Success:  true,
+		DemoID:   demoID,
+		Status:   "processing",
+		ChatOnly: chatOnly,
 	})
 }
 
@@ -708,8 +716,8 @@ func handleDownloadFromURL(w http.ResponseWriter, r *http.Request) {
 		// Register the downloaded demo for cleanup
 		registerUploadedDemo(demoFilename)
 
-		// Process the demo file
-		playerTeams, err := ProcessDemo(demoPath, demoID)
+		// Process the demo file (not chat-only for web downloads)
+		playerTeams, err := ProcessDemo(demoPath, demoID, false)
 		if err != nil {
 			log.Printf("Error processing demo: %v", err)
 			// Update status to failed
