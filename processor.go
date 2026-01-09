@@ -180,7 +180,6 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 	}()
 
 	// Optimize parser - only register voice data handler
-	// Register chat message handler
 	parser.RegisterEventHandler(func(e events.ChatMessage) {
 		senderName := "Console"
 		if e.Sender != nil {
@@ -195,16 +194,13 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 		chatLogs = append(chatLogs, fmt.Sprintf("[%s] %s%s: %s", parser.CurrentTime().String(), prefix, senderName, e.Text))
 	})
 
-	// Also listen for SayText and SayText2 directly as fallback/redundancy
-	// Also listen for SayText2 directly as fallback/redundancy for missing messages
-	// This helps catch messages that the high-level event might miss (e.g. some early game chat)
-	// Also listen for SayText2 event directly as fallback/redundancy
-	// This helps catch messages that the high-level ChatMessage event might miss
 	parser.RegisterEventHandler(func(e events.SayText2) {
-		// Simple heuristic to avoid duplicates: check if we just added this message
-		// via the ChatMessage event handler.
-		msgText := e.Msg
-		sender := e.SenderName
+		if len(e.Params) < 2 {
+			return
+		}
+
+		sender := e.Params[0]
+		msgText := e.Params[1]
 		
 		shouldAdd := true
 		if len(chatLogs) > 0 {
