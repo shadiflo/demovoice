@@ -278,6 +278,12 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if chat-only mode is requested
+	chatOnly := r.URL.Query().Get("chat_only") == "true"
+	if chatOnly {
+		log.Printf("📋 Web upload: Chat-only mode requested")
+	}
+
 	// Parse the uploaded file
 	file, header, err := r.FormFile("demo")
 	if err != nil {
@@ -369,8 +375,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		// Register uploaded demo for cleanup
 		registerUploadedDemo(header.Filename)
 
-		// Process the demo file (not chat-only for web uploads)
-		playerTeams, err := ProcessDemo(tempPath, demoID, false)
+		// Process the demo file
+		playerTeams, err := ProcessDemo(tempPath, demoID, chatOnly)
 		if err != nil {
 			log.Printf("Error processing demo %s: %v", demoID, err)
 			// Update status to failed
@@ -628,6 +634,12 @@ func handleDownloadFromURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if chat-only mode is requested
+	chatOnly := r.URL.Query().Get("chat_only") == "true"
+	if chatOnly {
+		log.Printf("📋 URL download: Chat-only mode requested")
+	}
+
 	// Get the matchroom URL from form
 	matchroomURL := r.FormValue("matchroom_url")
 	if matchroomURL == "" {
@@ -716,8 +728,8 @@ func handleDownloadFromURL(w http.ResponseWriter, r *http.Request) {
 		// Register the downloaded demo for cleanup
 		registerUploadedDemo(demoFilename)
 
-		// Process the demo file (not chat-only for web downloads)
-		playerTeams, err := ProcessDemo(demoPath, demoID, false)
+		// Process the demo file
+		playerTeams, err := ProcessDemo(demoPath, demoID, chatOnly)
 		if err != nil {
 			log.Printf("Error processing demo: %v", err)
 			// Update status to failed

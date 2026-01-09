@@ -308,20 +308,32 @@
                 <div class="col-md-6">
                     <h6 class="fw-bold mb-2">Option 1: Upload Demo File</h6>
                     <form action="/upload" method="post" enctype="multipart/form-data" id="uploadForm">
-                        <div class="input-group">
+                        <div class="input-group mb-2">
                             <input type="file" name="demo" accept=".dem" id="demoFile" class="form-control">
                             <button type="submit" class="btn btn-primary" id="submitButton">Extract</button>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="chatOnlyCheckbox" value="true">
+                            <label class="form-check-label" for="chatOnlyCheckbox" style="font-size: 0.875rem;">
+                                💬 Chat logs only (faster, no voice extraction)
+                            </label>
                         </div>
                     </form>
                 </div>
                 <div class="col-md-6">
                     <h6 class="fw-bold mb-2">Option 2: Faceit Matchroom URL</h6>
                     <form action="/download-from-url" method="post" id="urlForm">
-                        <div class="input-group">
+                        <div class="input-group mb-2">
                             <input type="text" name="matchroom_url"
                                 placeholder="https://www.faceit.com/en/cs2/room/1-..." id="matchroomURL"
                                 class="form-control">
                             <button type="submit" class="btn btn-primary" id="urlSubmitButton">Download</button>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="chatOnlyCheckboxURL" value="true">
+                            <label class="form-check-label" for="chatOnlyCheckboxURL" style="font-size: 0.875rem;">
+                                💬 Chat logs only (faster, no voice extraction)
+                            </label>
                         </div>
                     </form>
                 </div>
@@ -1041,6 +1053,16 @@
     {{end}}
     <script>
 
+        // Chat-only checkbox handler - update button text
+        document.getElementById('chatOnlyCheckbox')?.addEventListener('change', function () {
+            const submitButton = document.getElementById('submitButton');
+            if (this.checked) {
+                submitButton.textContent = '💬 Extract Chat';
+            } else {
+                submitButton.textContent = 'Extract';
+            }
+        });
+
         // Form handlers
         document.getElementById('uploadForm')?.addEventListener('submit', function (e) {
             if (!document.getElementById('demoFile').files[0]) {
@@ -1048,10 +1070,33 @@
                 alert('Please select a demo file');
                 return;
             }
+
+            // Check if chat-only mode is enabled
+            const chatOnlyCheckbox = document.getElementById('chatOnlyCheckbox');
+            const form = document.getElementById('uploadForm');
+
+            if (chatOnlyCheckbox && chatOnlyCheckbox.checked) {
+                // Add chat_only=true to form action
+                form.action = '/upload?chat_only=true';
+            } else {
+                // Reset to default action
+                form.action = '/upload';
+            }
+
             // Don't show modal - status will be inline
             // document.getElementById('loadingModal').classList.add('active');
             // document.querySelector('.loading-text').textContent = 'Uploading...';
             document.getElementById('submitButton').disabled = true;
+        });
+
+        // Chat-only checkbox handler for URL form - update button text
+        document.getElementById('chatOnlyCheckboxURL')?.addEventListener('change', function () {
+            const submitButton = document.getElementById('urlSubmitButton');
+            if (this.checked) {
+                submitButton.textContent = '💬 Download Chat';
+            } else {
+                submitButton.textContent = 'Download';
+            }
         });
 
         document.getElementById('urlForm')?.addEventListener('submit', function (e) {
@@ -1061,6 +1106,19 @@
                 alert('Please enter a valid Faceit matchroom URL');
                 return;
             }
+
+            // Check if chat-only mode is enabled
+            const chatOnlyCheckbox = document.getElementById('chatOnlyCheckboxURL');
+            const form = document.getElementById('urlForm');
+
+            if (chatOnlyCheckbox && chatOnlyCheckbox.checked) {
+                // Add chat_only=true to form action
+                form.action = '/download-from-url?chat_only=true';
+            } else {
+                // Reset to default action
+                form.action = '/download-from-url';
+            }
+
             // Don't show modal - status will be inline
             // document.getElementById('loadingModal').classList.add('active');
             // document.querySelector('.loading-text').textContent = 'Downloading demo...';
