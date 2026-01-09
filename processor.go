@@ -187,9 +187,9 @@ func ProcessDemo(demoPath string, demoID string) (playerTeams map[string]int, er
 			senderName = e.Sender.Name
 		}
 		
-		prefix := ""
+		prefix := "[ALL]"
 		if !e.IsChatAll {
-			prefix = "(TEAM) "
+			prefix = "[TEAM]"
 		}
 		
 		chatLogs = append(chatLogs, fmt.Sprintf("[%s] %s%s: %s", parser.CurrentTime().String(), prefix, senderName, e.Text))

@@ -440,10 +440,14 @@
     <div class="modal fade" id="chatLogModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content" style="background: #2a2a2a; border: 1px solid #3a3a3a; color: #e0e0e0;">
-                <div class="modal-header" style="border-bottom: 1px solid #3a3a3a;">
-                    <h5 class="modal-title">Match Chat Logs</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
-                        aria-label="Close"></button>
+                <div class="modal-header d-block" style="border-bottom: 1px solid #3a3a3a;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="modal-title mb-0">Match Chat Logs</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                    </div>
+                    <input type="text" id="chatFilterInput" class="form-control form-control-sm"
+                        placeholder="Filter by player name..." onkeyup="filterChatLog()">
                 </div>
                 <div class="modal-body p-0">
                     <pre id="chatLogContent" class="m-0 p-3"
@@ -827,11 +831,14 @@
         }
 
         // View chat log
+        let currentChatLogText = '';
+
         function viewChatLog(filename) {
             if (!filename) return;
 
             const content = document.getElementById('chatLogContent');
             content.textContent = 'Loading chat logs...';
+            document.getElementById('chatFilterInput').value = ''; // Reset filter
 
             const modal = new bootstrap.Modal(document.getElementById('chatLogModal'));
             modal.show();
@@ -842,6 +849,7 @@
                     return r.text();
                 })
                 .then(text => {
+                    currentChatLogText = text;
                     if (!text.trim()) {
                         content.textContent = 'No chat messages recorded in this demo.';
                     } else {
@@ -852,6 +860,27 @@
                     console.error('Error loading chat:', err);
                     content.textContent = 'Error loading chat logs: ' + err.message;
                 });
+        }
+
+        function filterChatLog() {
+            const filter = document.getElementById('chatFilterInput').value.toLowerCase();
+            const content = document.getElementById('chatLogContent');
+
+            if (!currentChatLogText) return;
+
+            if (!filter) {
+                content.textContent = currentChatLogText;
+                return;
+            }
+
+            const lines = currentChatLogText.split('\n');
+            const filteredLines = lines.filter(line => line.toLowerCase().includes(filter));
+
+            if (filteredLines.length === 0) {
+                content.textContent = 'No messages found for "' + filter + '"';
+            } else {
+                content.textContent = filteredLines.join('\n');
+            }
         }
 
         function copyChatLog() {
