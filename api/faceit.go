@@ -20,14 +20,14 @@ type FaceitClient struct {
 
 // PlayerInfo contains information about a player
 type PlayerInfo struct {
-	SteamID      string
-	Nickname     string
-	AudioFile    string
-	AudioLength  string  // Duration like "1m 23s" or "45s"
-	FaceitLevel  int
-	FaceitElo    int
-	DemoID       string // Track which demo the voice belongs to
-	Team         string // Team 1 or Team 2
+	SteamID     string
+	Nickname    string
+	AudioFile   string
+	AudioLength string // Duration like "1m 23s" or "45s"
+	FaceitLevel int
+	FaceitElo   int
+	DemoID      string // Track which demo the voice belongs to
+	Team        string // Team 1 or Team 2
 }
 
 // FaceitResponse represents the response from the Faceit API
@@ -195,11 +195,111 @@ type MatchResponse struct {
 	} `json:"payload"`
 }
 
-// GetMatchData fetches match room data from Faceit API (public endpoint - no auth needed)
+type OpenAPIMatchDataResponse struct {
+	MatchID string   `json:"match_id"`
+	Game    string   `json:"game"`
+	Region  string   `json:"region"`
+	DemoURL []string `json:"demo_url"`
+	Teams   struct {
+		Faction1 OpenAPIMatchTeam `json:"faction1"`
+		Faction2 OpenAPIMatchTeam `json:"faction2"`
+	} `json:"teams"`
+}
+
+type OpenAPIMatchTeam struct {
+	TeamID   string               `json:"team_id"`
+	Nickname string               `json:"nickname"`
+	Avatar   string               `json:"avatar"`
+	Players  []OpenAPIMatchPlayer `json:"players"`
+}
+
+type OpenAPIMatchPlayer struct {
+	PlayerID     string `json:"player_id"`
+	Nickname     string `json:"nickname"`
+	Avatar       string `json:"avatar"`
+	GamePlayerID string `json:"game_player_id"`
+	GameName     string `json:"game_player_name"`
+	SkillLevel   int    `json:"skill_level"`
+}
+
+// GetMatchData fetches match room data from Faceit, preferring the official Open API.
 func (c *FaceitClient) GetMatchData(matchID string) (*MatchResponse, error) {
+	if c.apiKey != "" {
+		matchData, err := c.getMatchDataFromOpenAPI(matchID)
+		if err == nil {
+			return matchData, nil
+		}
+		fmt.Printf("DEBUG [GetMatchData]: Open API failed, falling back to website API: %v\n", err)
+	}
+
+	return c.getMatchDataFromWebsiteAPI(matchID)
+}
+
+func (c *FaceitClient) getMatchDataFromOpenAPI(matchID string) (*MatchResponse, error) {
+	url := fmt.Sprintf("https://open.faceit.com/data/v4/matches/%s", matchID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create match request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call open match API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("open match API returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var openMatch OpenAPIMatchDataResponse
+	if err := json.NewDecoder(resp.Body).Decode(&openMatch); err != nil {
+		return nil, fmt.Errorf("failed to decode open match response: %w", err)
+	}
+
+	return openMatch.toMatchResponse(), nil
+}
+
+func (m OpenAPIMatchDataResponse) toMatchResponse() *MatchResponse {
+	var result MatchResponse
+	result.Payload.ID = m.MatchID
+	result.Payload.Game = m.Game
+	result.Payload.Region = m.Region
+	result.Payload.DemoURL = m.DemoURL
+	result.Payload.Teams.Faction1 = m.Teams.Faction1.toMatchTeam()
+	result.Payload.Teams.Faction2 = m.Teams.Faction2.toMatchTeam()
+	return &result
+}
+
+func (t OpenAPIMatchTeam) toMatchTeam() MatchTeam {
+	team := MatchTeam{
+		ID:     t.TeamID,
+		Name:   t.Nickname,
+		Avatar: t.Avatar,
+		Roster: make([]MatchPlayer, 0, len(t.Players)),
+	}
+
+	for _, player := range t.Players {
+		team.Roster = append(team.Roster, MatchPlayer{
+			ID:             player.PlayerID,
+			Nickname:       player.Nickname,
+			Avatar:         player.Avatar,
+			GameID:         player.GamePlayerID,
+			GameName:       player.GameName,
+			GameSkillLevel: player.SkillLevel,
+		})
+	}
+
+	return team
+}
+
+func (c *FaceitClient) getMatchDataFromWebsiteAPI(matchID string) (*MatchResponse, error) {
 	url := fmt.Sprintf("https://www.faceit.com/api/match/v2/match/%s", matchID)
 
-	fmt.Printf("🔍 DEBUG [GetMatchData]: URL: %s\n", url)
+	fmt.Printf("DEBUG [GetMatchData]: Website API URL: %s\n", url)
 
 	// This is a public endpoint - don't send Authorization header
 	resp, err := c.httpClient.Get(url)
@@ -208,12 +308,11 @@ func (c *FaceitClient) GetMatchData(matchID string) (*MatchResponse, error) {
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("🔍 DEBUG [GetMatchData]: Response status: %d\n", resp.StatusCode)
+	fmt.Printf("DEBUG [GetMatchData]: Website API response status: %d\n", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		fmt.Printf("🔍 DEBUG [GetMatchData]: Error response: %s\n", string(bodyBytes))
-		return nil, fmt.Errorf("match API returned status %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("website match API returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var result MatchResponse
@@ -221,7 +320,7 @@ func (c *FaceitClient) GetMatchData(matchID string) (*MatchResponse, error) {
 		return nil, fmt.Errorf("failed to decode match response: %w", err)
 	}
 
-	fmt.Printf("🔍 DEBUG [GetMatchData]: Successfully decoded match data\n")
+	fmt.Printf("DEBUG [GetMatchData]: Successfully decoded website match data\n")
 
 	return &result, nil
 }
