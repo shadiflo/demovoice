@@ -1,7 +1,6 @@
 package decoder
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -34,57 +33,38 @@ func DecodeChunk(b []byte) (*Chunk, error) {
 	}
 
 	chunk := &Chunk{}
+	offset := 0
 
-	buf := bytes.NewBuffer(b)
+	chunk.SteamID = binary.LittleEndian.Uint64(b[offset:])
+	offset += 8
 
-	if err := binary.Read(buf, binary.LittleEndian, &chunk.SteamID); err != nil {
-		return nil, err
-	}
-
-	var payloadType byte
-	if err := binary.Read(buf, binary.LittleEndian, &payloadType); err != nil {
-		return nil, err
-	}
+	payloadType := b[offset]
+	offset++
 
 	if payloadType != 0x0B {
 		return nil, fmt.Errorf("%w (received %x, expected %x)", ErrInvalidVoicePacket, payloadType, 0x0B)
 	}
 
-	if err := binary.Read(buf, binary.LittleEndian, &chunk.SampleRate); err != nil {
-		return nil, err
-	}
+	chunk.SampleRate = binary.LittleEndian.Uint16(b[offset:])
+	offset += 2
 
-	var voiceType byte
-	if err := binary.Read(buf, binary.LittleEndian, &voiceType); err != nil {
-		return nil, err
-	}
+	voiceType := b[offset]
+	offset++
 
-	if err := binary.Read(buf, binary.LittleEndian, &chunk.Length); err != nil {
-		return nil, err
-	}
+	chunk.Length = binary.LittleEndian.Uint16(b[offset:])
+	offset += 2
 
 	switch voiceType {
 	case 0x6:
-		remaining := buf.Len()
+		remaining := bLen - offset - 4
 		chunkLen := int(chunk.Length)
 
 		if remaining < chunkLen {
 			return nil, fmt.Errorf("%w (received: %d bytes, expected at least %d bytes)", ErrInsufficientData, bLen, (bLen + (chunkLen - remaining)))
 		}
 
-		data := make([]byte, chunkLen)
-		n, err := buf.Read(data)
-
-		if err != nil {
-			return nil, err
-		}
-
-		// Is this even possible
-		if n != chunkLen {
-			return nil, fmt.Errorf("%w (expected to read %d bytes, but read %d bytes)", ErrInsufficientData, chunkLen, n)
-		}
-
-		chunk.Data = data
+		chunk.Data = b[offset : offset+chunkLen]
+		offset += chunkLen
 	case 0x0:
 		// no-op, detect silence if chunk.Data is empty
 		// the length would the number of silence frames
@@ -92,15 +72,13 @@ func DecodeChunk(b []byte) (*Chunk, error) {
 		return nil, fmt.Errorf("%w (expected 0x6 or 0x0 voice data, received %x)", ErrInvalidVoicePacket, voiceType)
 	}
 
-	remaining := buf.Len()
+	remaining := bLen - offset
 
 	if remaining != 4 {
 		return nil, fmt.Errorf("%w (has %d bytes remaining, expected 4 bytes remaining)", ErrInvalidVoicePacket, remaining)
 	}
 
-	if err := binary.Read(buf, binary.LittleEndian, &chunk.Checksum); err != nil {
-		return nil, err
-	}
+	chunk.Checksum = binary.LittleEndian.Uint32(b[offset:])
 
 	actualChecksum := crc32.ChecksumIEEE(b[0 : bLen-4])
 

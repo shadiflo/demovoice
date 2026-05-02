@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"demovoice/decoder"
 	"fmt"
 	"io"
@@ -13,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-audio/audio"
@@ -85,15 +83,10 @@ func ProcessDemo(demoPath string, demoID string, chatOnly bool) (playerTeams map
 
 	startTime := time.Now()
 
-	// Pre-allocate maps with expected capacity (10 players typical)
-	voiceDataPerPlayer := make(map[string][][]byte, 10)
+	voiceWriters := make(map[string]*voiceStreamWriter, 10)
 	playerTeams = make(map[string]int, 10)
-	var format string
 	var chatLogs []string
-
-	// Use separate mutexes per player to reduce contention
-	playerMutexes := make(map[string]*sync.Mutex, 10)
-	var mapMutex sync.RWMutex
+	var voiceProcessingErr error
 
 	// Track voice packets for progress
 	var voicePacketCount int64
@@ -113,27 +106,19 @@ func ProcessDemo(demoPath string, demoID string, chatOnly bool) (playerTeams map
 	fileSizeMB := float64(fileInfo.Size()) / (1024 * 1024)
 	log.Printf("Demo file size: %.2f MB", fileSizeMB)
 
-	// Load entire file into memory for fastest parsing
-	log.Printf("Loading demo into memory...")
-	loadStart := time.Now()
-	fileData, err := io.ReadAll(bufio.NewReaderSize(file, 16*1024*1024))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read demo file: %v", err)
+	if fileInfo.Size() < 100 {
+		return nil, fmt.Errorf("demo file too small or empty: %d bytes", fileInfo.Size())
 	}
-	if len(fileData) < 100 {
-		return nil, fmt.Errorf("demo file too small or empty: %d bytes", len(fileData))
-	}
-	log.Printf("Loaded %.2f MB into memory in %.2fs", fileSizeMB, time.Since(loadStart).Seconds())
 
-	var demoReader io.Reader = bytes.NewReader(fileData)
+	cleanupOldDemoFiles(demoID)
+
+	var demoReader io.Reader = bufio.NewReaderSize(file, 16*1024*1024)
 
 	// Check if file is zstd compressed (.dem.zst) and decompress if needed
 	if strings.HasSuffix(strings.ToLower(demoPath), ".zst") {
-		log.Printf("Decompressing zstd demo...")
-		decompressStart := time.Now()
+		log.Printf("Streaming zstd demo decompression...")
 
-		// Create decoder with max concurrency from the in-memory data
-		zstdDecoder, err := zstd.NewReader(bytes.NewReader(fileData),
+		zstdDecoder, err := zstd.NewReader(file,
 			zstd.WithDecoderConcurrency(runtime.NumCPU()),
 			zstd.WithDecoderLowmem(false),
 		)
@@ -141,26 +126,14 @@ func ProcessDemo(demoPath string, demoID string, chatOnly bool) (playerTeams map
 			return nil, fmt.Errorf("failed to create zstd decoder: %v", err)
 		}
 
-		// Decompress entire file
-		decompressedData, err := io.ReadAll(zstdDecoder)
-		zstdDecoder.Close()
-		if err != nil {
-			return nil, fmt.Errorf("failed to decompress: %v", err)
-		}
-
-		decompressedMB := float64(len(decompressedData)) / (1024 * 1024)
-		log.Printf("Decompressed %.2f MB -> %.2f MB in %.2fs (%.1fx ratio)",
-			fileSizeMB, decompressedMB, time.Since(decompressStart).Seconds(),
-			decompressedMB/fileSizeMB)
-
-		demoReader = bytes.NewReader(decompressedData)
-		fileSizeMB = decompressedMB
+		defer zstdDecoder.Close()
+		demoReader = zstdDecoder
 	}
 
 	// Use optimized parser config for faster parsing
 	parserConfig := dem.DefaultParserConfig
-	parserConfig.MsgQueueBufferSize = 128000         // Reasonable buffer size
-	parserConfig.DisableMimicSource1Events = true    // Skip Source 1 event mimicking for CS2
+	parserConfig.MsgQueueBufferSize = 128000      // Reasonable buffer size
+	parserConfig.DisableMimicSource1Events = true // Skip Source 1 event mimicking for CS2
 
 	parser := dem.NewParserWithConfig(demoReader, parserConfig)
 
@@ -191,8 +164,6 @@ func ProcessDemo(demoPath string, demoID string, chatOnly bool) (playerTeams map
 		chatLogs = append(chatLogs, fmt.Sprintf("[%s] %s: %s", parser.CurrentTime().String(), senderName, e.Text))
 	})
 
-
-
 	// Only register voice handler if not chat-only mode
 	if !chatOnly {
 		// Optimize parser - only register voice data handler
@@ -204,31 +175,19 @@ func ProcessDemo(demoPath string, demoID string, chatOnly bool) (playerTeams map
 			}
 
 			// Track packet count for progress
-			atomic.AddInt64(&voicePacketCount, 1)
+			voicePacketCount++
 
 			// Get the users Steam ID 64
-			steamId := strconv.Itoa(int(m.GetXuid()))
-			format = m.Audio.Format.String()
-
-			// Get or create player-specific mutex
-			mapMutex.RLock()
-			playerMutex, exists := playerMutexes[steamId]
-			mapMutex.RUnlock()
-
+			steamId := strconv.FormatUint(m.GetXuid(), 10)
+			writer, exists := voiceWriters[steamId]
 			if !exists {
-				mapMutex.Lock()
-				if _, exists = playerMutexes[steamId]; !exists {
-					playerMutexes[steamId] = &sync.Mutex{}
-					voiceDataPerPlayer[steamId] = make([][]byte, 0, 256) // Pre-allocate expected voice packets
-				}
-				playerMutex = playerMutexes[steamId]
-				mapMutex.Unlock()
+				writer = newVoiceStreamWriter(filepath.Join(outputDir, fmt.Sprintf("%s_%s.wav", steamId, demoID)))
+				voiceWriters[steamId] = writer
 			}
 
-			// Lock only this player's data
-			playerMutex.Lock()
-			voiceDataPerPlayer[steamId] = append(voiceDataPerPlayer[steamId], m.Audio.VoiceData)
-			playerMutex.Unlock()
+			if err := writer.WritePacket(m.Audio.VoiceData, m.Audio.Format.String()); err != nil && voiceProcessingErr == nil {
+				voiceProcessingErr = fmt.Errorf("player %s: %w", steamId, err)
+			}
 		})
 	}
 
@@ -237,26 +196,23 @@ func ProcessDemo(demoPath string, demoID string, chatOnly bool) (playerTeams map
 	err = parser.ParseToEnd()
 	close(stopProgress) // Stop progress logging
 	parseTime := time.Since(startTime)
+	closeErr := closeVoiceWriters(voiceWriters)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse demo: %v", err)
 	}
 	log.Printf("Demo parsing completed for %s in %.2fs (%.2f MB/s, %d voice packets)",
-		demoID, parseTime.Seconds(), fileSizeMB/parseTime.Seconds(), atomic.LoadInt64(&voicePacketCount))
+		demoID, parseTime.Seconds(), fileSizeMB/parseTime.Seconds(), voicePacketCount)
+
+	if voiceProcessingErr != nil {
+		return nil, voiceProcessingErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
 
 	// Capture team info from parser state after parsing
 	for _, player := range parser.GameState().Participants().All() {
 		playerTeams[strconv.FormatUint(player.SteamID64, 10)] = int(player.Team)
-	}
-
-	// Clean old files from the same demo if they exist (when re-processing the same demo)
-	cleanupOldDemoFiles(demoID)
-
-	// Filter out players with no voice data
-	filteredPlayers := make(map[string][][]byte)
-	for playerId, voiceData := range voiceDataPerPlayer {
-		if len(voiceData) > 0 {
-			filteredPlayers[playerId] = voiceData
-		}
 	}
 
 	// Save chat logs
@@ -280,18 +236,213 @@ func ProcessDemo(demoPath string, demoID string, chatOnly bool) (playerTeams map
 		return playerTeams, nil
 	}
 
-	if len(filteredPlayers) == 0 {
+	if countVoiceWritersWithAudio(voiceWriters) == 0 {
 		log.Printf("No voice data found in demo %s", demoID)
 		return playerTeams, nil
 	}
 
-	// Process voice data in parallel
-	err = processVoiceDataParallel(filteredPlayers, format, demoID)
-	if err != nil {
-		return nil, err
+	return playerTeams, nil
+}
+
+type voiceStreamWriter struct {
+	outputPath    string
+	format        string
+	sampleRate    int
+	file          *os.File
+	encoder       *wav.Encoder
+	steamDecoder  *decoder.OpusDecoder
+	opusDecoder   *decoder.RawOpusDecoder
+	floatScratch  []float32
+	intScratch    []int
+	packetCount   int
+	sampleCount   int
+	decodeErrors  int
+	unsupported   bool
+	closeComplete bool
+}
+
+func newVoiceStreamWriter(outputPath string) *voiceStreamWriter {
+	return &voiceStreamWriter{
+		outputPath:   outputPath,
+		floatScratch: make([]float32, 0, decoder.FrameSize*2),
+		intScratch:   make([]int, 0, decoder.FrameSize*2),
+	}
+}
+
+func (w *voiceStreamWriter) WritePacket(payload []byte, format string) error {
+	if w.closeComplete {
+		return fmt.Errorf("cannot write packet after closing %s", w.outputPath)
 	}
 
-	return playerTeams, nil
+	if w.format == "" {
+		w.format = format
+	} else if w.format != format {
+		return fmt.Errorf("voice format changed from %s to %s", w.format, format)
+	}
+
+	w.packetCount++
+
+	switch format {
+	case "VOICEDATA_FORMAT_OPUS":
+		if w.opusDecoder == nil {
+			opusDecoder, err := decoder.NewRawOpusDecoder(48000, 1)
+			if err != nil {
+				return fmt.Errorf("failed to create opus decoder: %w", err)
+			}
+			w.opusDecoder = opusDecoder
+		}
+
+		w.floatScratch = w.floatScratch[:0]
+		pcm, err := w.opusDecoder.DecodeInto(payload, w.floatScratch)
+		if err != nil {
+			w.decodeErrors++
+			log.Printf("Error decoding opus data for %s: %v", w.outputPath, err)
+			return nil
+		}
+
+		return w.writePCM(48000, pcm)
+	case "VOICEDATA_FORMAT_STEAM":
+		chunk, err := decoder.DecodeChunk(payload)
+		if err != nil {
+			w.decodeErrors++
+			log.Printf("Error decoding Steam voice chunk for %s: %v", w.outputPath, err)
+			return nil
+		}
+		if chunk == nil || len(chunk.Data) == 0 {
+			return nil
+		}
+
+		sampleRate := int(chunk.SampleRate)
+		if sampleRate == 0 {
+			sampleRate = 24000
+		}
+
+		if w.steamDecoder == nil {
+			steamDecoder, err := decoder.NewOpusDecoder(sampleRate, 1)
+			if err != nil {
+				return fmt.Errorf("failed to create Steam voice decoder: %w", err)
+			}
+			w.steamDecoder = steamDecoder
+		} else if w.sampleRate != 0 && w.sampleRate != sampleRate {
+			return fmt.Errorf("Steam voice sample rate changed from %d to %d", w.sampleRate, sampleRate)
+		}
+
+		w.floatScratch = w.floatScratch[:0]
+		pcm, err := w.steamDecoder.DecodeInto(chunk.Data, w.floatScratch)
+		if err != nil {
+			w.decodeErrors++
+			log.Printf("Error decoding Steam voice PCM for %s: %v", w.outputPath, err)
+			return nil
+		}
+
+		return w.writePCM(sampleRate, pcm)
+	default:
+		if !w.unsupported {
+			w.unsupported = true
+			log.Printf("Unsupported voice format %s for %s", format, w.outputPath)
+		}
+		return nil
+	}
+}
+
+func (w *voiceStreamWriter) ensureOutput(sampleRate int) error {
+	if w.encoder != nil {
+		return nil
+	}
+
+	file, err := os.Create(w.outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create WAV file: %w", err)
+	}
+
+	w.file = file
+	w.sampleRate = sampleRate
+	w.encoder = wav.NewEncoder(file, sampleRate, 32, 1, 1)
+	return nil
+}
+
+func (w *voiceStreamWriter) writePCM(sampleRate int, pcm []float32) error {
+	if len(pcm) == 0 {
+		return nil
+	}
+
+	if err := w.ensureOutput(sampleRate); err != nil {
+		return err
+	}
+
+	if cap(w.intScratch) < len(pcm) {
+		w.intScratch = make([]int, len(pcm))
+	} else {
+		w.intScratch = w.intScratch[:len(pcm)]
+	}
+
+	for i, sample := range pcm {
+		w.intScratch[i] = int(sample * 2147483647)
+	}
+
+	buf := &audio.IntBuffer{
+		Data: w.intScratch,
+		Format: &audio.Format{
+			SampleRate:  sampleRate,
+			NumChannels: 1,
+		},
+	}
+
+	if err := w.encoder.Write(buf); err != nil {
+		return fmt.Errorf("failed to write WAV data: %w", err)
+	}
+
+	w.sampleCount += len(pcm)
+	return nil
+}
+
+func (w *voiceStreamWriter) Close() error {
+	if w.closeComplete {
+		return nil
+	}
+	w.closeComplete = true
+
+	var closeErr error
+	if w.encoder != nil {
+		closeErr = w.encoder.Close()
+	}
+	if w.file != nil {
+		if err := w.file.Close(); closeErr == nil && err != nil {
+			closeErr = err
+		}
+	}
+
+	if w.packetCount > 0 {
+		log.Printf("Streamed %d packets / %d samples to %s (%d decode errors)",
+			w.packetCount, w.sampleCount, w.outputPath, w.decodeErrors)
+	}
+
+	return closeErr
+}
+
+func closeVoiceWriters(writers map[string]*voiceStreamWriter) error {
+	var closeErrors []error
+	for playerID, writer := range writers {
+		if err := writer.Close(); err != nil {
+			closeErrors = append(closeErrors, fmt.Errorf("player %s: %w", playerID, err))
+		}
+	}
+
+	if len(closeErrors) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("failed to close %d voice writer(s): %v", len(closeErrors), closeErrors)
+}
+
+func countVoiceWritersWithAudio(writers map[string]*voiceStreamWriter) int {
+	count := 0
+	for _, writer := range writers {
+		if writer.sampleCount > 0 {
+			count++
+		}
+	}
+	return count
 }
 
 // processVoiceDataParallel processes multiple players' voice data concurrently
@@ -425,7 +576,7 @@ func cleanupOldDemoFiles(demoID string) {
 			os.Remove(filepath.Join(outputDir, file.Name()))
 		}
 	}
-	
+
 	// Delete chat logs
 	os.Remove(filepath.Join(outputDir, demoID+"_chat.txt"))
 
@@ -558,4 +709,3 @@ func opusToWavOptimized(data [][]byte, wavName string) error {
 
 	return nil
 }
-

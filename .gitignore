@@ -31,6 +31,7 @@ Thumbs.db
 *.tmp
 *.lock
 vendor/
+.tools/
 # cameras
 cameras.m3u
 
