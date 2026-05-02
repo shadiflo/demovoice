@@ -586,7 +586,7 @@
                             }
 
                             // Always try to render, even with no players
-                            if (matchDataCache) {
+                            if (hasRenderableMatchTeams(matchDataCache)) {
                                 console.log('Rendering teams with cached match data');
                                 renderTeams(matchDataCache);
                             } else if (matchID) {
@@ -635,10 +635,7 @@
                 .then(data => {
                     console.log('Match data received:', data);
                     // Check for teams in both possible locations (API structure changed)
-                    const hasTeams = data.payload && (
-                        (data.payload.teams && data.payload.teams.faction1) ||
-                        (data.payload.entityCustom && data.payload.entityCustom.teams)
-                    );
+                    const hasTeams = data.payload && hasRenderableMatchTeams(data.payload);
                     if (hasTeams) {
                         matchDataCache = data.payload;
                         console.log('Rendering teams with fetched match data');
@@ -656,6 +653,27 @@
                 });
         }
 
+        function hasRenderableMatchTeams(matchData) {
+            if (!matchData) return false;
+
+            let faction1, faction2;
+            if (matchData.teams && matchData.teams.faction1) {
+                faction1 = matchData.teams.faction1;
+                faction2 = matchData.teams.faction2;
+            } else if (matchData.entityCustom && matchData.entityCustom.teams) {
+                faction1 = matchData.entityCustom.teams.faction1;
+                faction2 = matchData.entityCustom.teams.faction2;
+            }
+
+            return !!(
+                faction1 &&
+                faction2 &&
+                Array.isArray(faction1.roster) &&
+                Array.isArray(faction2.roster) &&
+                (faction1.roster.length + faction2.roster.length) > 0
+            );
+        }
+
         // Render teams from match data
         function renderTeams(matchData) {
             console.log('renderTeams called with:', matchData);
@@ -671,6 +689,12 @@
                 faction2 = matchData.entityCustom.teams.faction2;
             } else {
                 console.error('No teams found in match data');
+                renderFallback();
+                return;
+            }
+
+            if (!hasRenderableMatchTeams(matchData)) {
+                console.warn('Match data has no roster players, rendering extracted voices fallback');
                 renderFallback();
                 return;
             }
@@ -1045,7 +1069,7 @@
         // Initialize on load
         if (demoStatus !== 'completed') {
             startStatusPolling();
-        } else if (matchDataCache) {
+        } else if (hasRenderableMatchTeams(matchDataCache)) {
             renderTeams(matchDataCache);
         } else if (matchID) {
             fetchAndRenderTeams();

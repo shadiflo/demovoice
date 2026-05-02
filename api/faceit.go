@@ -207,19 +207,22 @@ type OpenAPIMatchDataResponse struct {
 }
 
 type OpenAPIMatchTeam struct {
-	TeamID   string               `json:"team_id"`
-	Nickname string               `json:"nickname"`
-	Avatar   string               `json:"avatar"`
-	Players  []OpenAPIMatchPlayer `json:"players"`
+	TeamID    string               `json:"team_id"`
+	FactionID string               `json:"faction_id"`
+	Nickname  string               `json:"nickname"`
+	Avatar    string               `json:"avatar"`
+	Players   []OpenAPIMatchPlayer `json:"players"`
+	Roster    []OpenAPIMatchPlayer `json:"roster"`
 }
 
 type OpenAPIMatchPlayer struct {
-	PlayerID     string `json:"player_id"`
-	Nickname     string `json:"nickname"`
-	Avatar       string `json:"avatar"`
-	GamePlayerID string `json:"game_player_id"`
-	GameName     string `json:"game_player_name"`
-	SkillLevel   int    `json:"skill_level"`
+	PlayerID       string `json:"player_id"`
+	Nickname       string `json:"nickname"`
+	Avatar         string `json:"avatar"`
+	GamePlayerID   string `json:"game_player_id"`
+	GameName       string `json:"game_player_name"`
+	SkillLevel     int    `json:"skill_level"`
+	GameSkillLevel int    `json:"game_skill_level"`
 }
 
 // GetMatchData fetches match room data from Faceit, preferring the official Open API.
@@ -275,21 +278,36 @@ func (m OpenAPIMatchDataResponse) toMatchResponse() *MatchResponse {
 }
 
 func (t OpenAPIMatchTeam) toMatchTeam() MatchTeam {
-	team := MatchTeam{
-		ID:     t.TeamID,
-		Name:   t.Nickname,
-		Avatar: t.Avatar,
-		Roster: make([]MatchPlayer, 0, len(t.Players)),
+	teamID := t.TeamID
+	if teamID == "" {
+		teamID = t.FactionID
 	}
 
-	for _, player := range t.Players {
+	players := t.Players
+	if len(players) == 0 {
+		players = t.Roster
+	}
+
+	team := MatchTeam{
+		ID:     teamID,
+		Name:   t.Nickname,
+		Avatar: t.Avatar,
+		Roster: make([]MatchPlayer, 0, len(players)),
+	}
+
+	for _, player := range players {
+		skillLevel := player.SkillLevel
+		if skillLevel == 0 {
+			skillLevel = player.GameSkillLevel
+		}
+
 		team.Roster = append(team.Roster, MatchPlayer{
 			ID:             player.PlayerID,
 			Nickname:       player.Nickname,
 			Avatar:         player.Avatar,
 			GameID:         player.GamePlayerID,
 			GameName:       player.GameName,
-			GameSkillLevel: player.SkillLevel,
+			GameSkillLevel: skillLevel,
 		})
 	}
 
