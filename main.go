@@ -79,7 +79,21 @@ func init() {
 	// Initialize clients
 	faceitClient = api.NewFaceitClient(faceitAPIKey, faceitDownloadAPIKey)
 	matchClient = api.NewMatchClient()
-	metadataStore = storage.NewMetadataStore(outputDir)
+
+	// Initialize metadata store, using Redis if configured.
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL != "" {
+		redisCache, err := storage.NewRedisCache(redisURL)
+		if err != nil {
+			log.Printf("Warning: Redis unavailable (%v) — falling back to file-only metadata", err)
+			metadataStore = storage.NewMetadataStore(outputDir)
+		} else {
+			log.Printf("Redis connected: metadata cache enabled")
+			metadataStore = storage.NewMetadataStoreWithRedis(outputDir, redisCache, tempFileLifetime)
+		}
+	} else {
+		metadataStore = storage.NewMetadataStore(outputDir)
+	}
 
 	// Don't clean existing files on startup - let TTL handle cleanup
 	// This prevents deleting files if server restarts

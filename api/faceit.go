@@ -496,52 +496,64 @@ func (c *FaceitClient) GetSignedDemoURL(resourceURL string) (string, error) {
 	return downloadResp.Payload.DownloadURL, nil
 }
 
-// DownloadDemo downloads a demo file from Faceit and saves it to the specified path
+// DownloadDemo downloads a demo file from Faceit and saves it to the specified path.
+// It tries a direct CDN download first; only falls back to the signed-URL download
+// API if the direct attempt returns 401/403 (which requires FACEIT_DOWNLOAD_API_KEY).
 func (c *FaceitClient) DownloadDemo(matchID string, savePath string) error {
 	fmt.Printf("📥 Starting demo download for match: %s\n", matchID)
 
-	// Step 1: Get the resource URL from match data
 	resourceURL, err := c.GetDemoResourceURL(matchID)
 	if err != nil {
 		return fmt.Errorf("failed to get demo resource URL: %w", err)
 	}
 	fmt.Printf("📥 Got resource URL: %s\n", resourceURL)
 
-	// Step 2: Get signed download URL
+	// Try direct download first — works when the CDN URL is publicly accessible.
+	written, err := c.downloadToFile(resourceURL, savePath)
+	if err == nil {
+		fmt.Printf("📥 Direct download succeeded: %.2f MB → %s\n", float64(written)/(1024*1024), savePath)
+		return nil
+	}
+	fmt.Printf("📥 Direct download failed (%v), trying signed URL...\n", err)
+
+	// Fall back to the signed-URL download API (requires FACEIT_DOWNLOAD_API_KEY).
 	signedURL, err := c.GetSignedDemoURL(resourceURL)
 	if err != nil {
-		return fmt.Errorf("failed to get signed download URL: %w", err)
+		return fmt.Errorf("direct download failed and signed URL unavailable: %w", err)
 	}
-	fmt.Printf("📥 Got signed URL, starting download...\n")
+	fmt.Printf("📥 Got signed URL, retrying download...\n")
 
-	// Step 3: Download the demo file using the download client (longer timeout)
-	resp, err := c.downloadClient.Get(signedURL)
+	written, err = c.downloadToFile(signedURL, savePath)
 	if err != nil {
-		return fmt.Errorf("failed to download demo: %w", err)
+		return fmt.Errorf("signed URL download failed: %w", err)
+	}
+	fmt.Printf("📥 Signed download succeeded: %.2f MB → %s\n", float64(written)/(1024*1024), savePath)
+	return nil
+}
+
+// downloadToFile streams a URL into savePath and returns bytes written.
+// Returns an error (without creating the file) if the server responds with a non-200 status.
+func (c *FaceitClient) downloadToFile(url, savePath string) (int64, error) {
+	resp, err := c.downloadClient.Get(url)
+	if err != nil {
+		return 0, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("demo download returned status %d: %s", resp.StatusCode, string(bodyBytes))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Get content length for progress logging
-	contentLength := resp.ContentLength
-	fmt.Printf("📥 Download size: %.2f MB\n", float64(contentLength)/(1024*1024))
+	if resp.ContentLength > 0 {
+		fmt.Printf("📥 Download size: %.2f MB\n", float64(resp.ContentLength)/(1024*1024))
+	}
 
-	// Step 4: Save to file
 	out, err := os.Create(savePath)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
+		return 0, fmt.Errorf("failed to create file: %w", err)
 	}
 	defer out.Close()
 
-	written, err := io.Copy(out, resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to save demo file: %w", err)
-	}
-
-	fmt.Printf("📥 Downloaded %.2f MB to %s\n", float64(written)/(1024*1024), savePath)
-	return nil
+	return io.Copy(out, resp.Body)
 }

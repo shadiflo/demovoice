@@ -15,6 +15,8 @@ import (
 // MetadataStore handles saving and loading metadata for demo files
 type MetadataStore struct {
 	OutputDir string
+	redis     *RedisCache // nil if Redis is not configured
+	redisTTL  time.Duration
 }
 
 // DemoMetadata contains metadata about a processed demo file
@@ -31,11 +33,16 @@ type DemoMetadata struct {
 	ChatLog       string           `json:"chat_log,omitempty"`        // Filename of the chat log
 }
 
-// NewMetadataStore creates a new metadata store
+// NewMetadataStore creates a new metadata store backed only by the filesystem.
 func NewMetadataStore(outputDir string) *MetadataStore {
-	return &MetadataStore{
-		OutputDir: outputDir,
-	}
+	return &MetadataStore{OutputDir: outputDir}
+}
+
+// NewMetadataStoreWithRedis creates a metadata store that uses Redis as a
+// read-through cache in front of the filesystem. ttl controls how long cached
+// entries live in Redis.
+func NewMetadataStoreWithRedis(outputDir string, cache *RedisCache, ttl time.Duration) *MetadataStore {
+	return &MetadataStore{OutputDir: outputDir, redis: cache, redisTTL: ttl}
 }
 
 // SaveMetadata saves metadata about a processed demo
@@ -105,10 +112,17 @@ func (s *MetadataStore) SaveMetadata(demoID, filename string) (*DemoMetadata, er
 	return &metadata, nil
 }
 
-// LoadMetadata loads metadata for a specific demo ID
+// LoadMetadata loads metadata for a specific demo ID.
+// Redis is checked first when available; falls back to the filesystem.
 func (s *MetadataStore) LoadMetadata(demoID string) (*DemoMetadata, error) {
 	if demoID == "" {
 		return nil, fmt.Errorf("empty demo ID")
+	}
+
+	if s.redis != nil {
+		if metadata, err := s.redis.GetMetadata(demoID); err == nil {
+			return metadata, nil
+		}
 	}
 
 	metadataPath := filepath.Join(s.OutputDir, demoID+".json")
@@ -120,6 +134,11 @@ func (s *MetadataStore) LoadMetadata(demoID string) (*DemoMetadata, error) {
 	var metadata DemoMetadata
 	if err := json.Unmarshal(metadataFile, &metadata); err != nil {
 		return nil, err
+	}
+
+	// Backfill Redis cache from disk.
+	if s.redis != nil {
+		_ = s.redis.SetMetadata(&metadata, s.redisTTL)
 	}
 
 	return &metadata, nil
@@ -185,7 +204,7 @@ func (s *MetadataStore) EnrichMetadataWithMatchInfo(demoID string, matchID strin
 	return os.WriteFile(metadataPath, metadataBytes, 0644)
 }
 
-// UpdateMetadata saves an existing metadata object back to disk
+// UpdateMetadata saves an existing metadata object back to disk and Redis.
 func (s *MetadataStore) UpdateMetadata(metadata *DemoMetadata) error {
 	metadataBytes, err := json.Marshal(metadata)
 	if err != nil {
@@ -193,16 +212,45 @@ func (s *MetadataStore) UpdateMetadata(metadata *DemoMetadata) error {
 	}
 
 	metadataPath := filepath.Join(s.OutputDir, metadata.DemoID+".json")
-	return os.WriteFile(metadataPath, metadataBytes, 0644)
+	if err := os.WriteFile(metadataPath, metadataBytes, 0644); err != nil {
+		return err
+	}
+
+	if s.redis != nil {
+		_ = s.redis.SetMetadata(metadata, s.redisTTL)
+		if metadata.MatchID != "" {
+			_ = s.redis.SetMatchIndex(metadata.MatchID, metadata.DemoID, s.redisTTL)
+		}
+	}
+
+	return nil
 }
 
-// FindDemoByMatchID finds an existing demo for a specific match ID
-// Returns the demo if found and not expired (within 2 hours), otherwise returns nil
+// FindDemoByMatchID finds an existing demo for a specific match ID.
+// Checks Redis first (O(1)); falls back to a directory scan when Redis is
+// unavailable. Returns nil without error when no valid demo is found.
 func (s *MetadataStore) FindDemoByMatchID(matchID string, maxAge time.Duration) (*DemoMetadata, error) {
 	if matchID == "" {
 		return nil, nil
 	}
 
+	// Fast path: Redis index lookup.
+	if s.redis != nil {
+		if demoID, err := s.redis.GetMatchIndex(matchID); err == nil {
+			metadata, err := s.LoadMetadata(demoID)
+			if err == nil {
+				age := time.Since(metadata.UploadTime)
+				if age <= maxAge {
+					log.Printf("Redis cache HIT for match %s → demo %s (age: %v)", matchID, demoID, age)
+					return metadata, nil
+				}
+				log.Printf("Redis cache HIT but expired for match %s (age: %v, max: %v)", matchID, age, maxAge)
+				s.redis.DeleteMetadata(demoID)
+			}
+		}
+	}
+
+	// Slow path: scan all JSON files in the output directory.
 	files, err := os.ReadDir(s.OutputDir)
 	if err != nil {
 		return nil, err
@@ -214,24 +262,26 @@ func (s *MetadataStore) FindDemoByMatchID(matchID string, maxAge time.Duration) 
 			demoID := strings.TrimSuffix(file.Name(), ".json")
 			metadata, err := s.LoadMetadata(demoID)
 			if err != nil {
-				continue // Skip corrupted metadata files
+				continue
 			}
 
-			// Check if this demo matches the match ID
 			if metadata.MatchID == matchID {
-				// Check if it's still fresh (not expired)
 				age := now.Sub(metadata.UploadTime)
 				if age <= maxAge {
 					log.Printf("Found existing demo for match %s: %s (age: %v)", matchID, demoID, age)
+					// Populate the Redis index so future lookups are fast.
+					if s.redis != nil {
+						_ = s.redis.SetMatchIndex(matchID, demoID, s.redisTTL)
+						_ = s.redis.SetMetadata(metadata, s.redisTTL)
+					}
 					return metadata, nil
-				} else {
-					log.Printf("Found expired demo for match %s: %s (age: %v, max: %v)", matchID, demoID, age, maxAge)
 				}
+				log.Printf("Found expired demo for match %s: %s (age: %v, max: %v)", matchID, demoID, age, maxAge)
 			}
 		}
 	}
 
-	return nil, nil // Not found
+	return nil, nil
 }
 
 // ExtractMatchIDFromFilename extracts the Faceit match ID from a demo filename
