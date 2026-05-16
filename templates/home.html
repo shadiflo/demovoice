@@ -295,9 +295,12 @@
         <!-- Alert Banner -->
         <div class="row">
             <div class="col-12">
-                <div class="alert alert-primary" role="alert">
+                <div class="alert alert-primary d-flex justify-content-between align-items-center" role="alert">
                     <p class="mb-0">Upload a CS2 demo file or enter a Faceit matchroom URL to extract voice
                         communications.</p>
+                    {{if .CurrentDemo}}
+                    <a href="/reset" class="btn btn-sm btn-outline-light ms-3 text-nowrap">+ New Demo</a>
+                    {{end}}
                 </div>
             </div>
         </div>
@@ -600,12 +603,15 @@
                             // document.getElementById('loadingModal').classList.remove('active');
                         } else if (data.status === 'failed') {
                             clearInterval(statusPollInterval);
-                            // Hide processing spinner, show options
-                            document.getElementById('processingCard').style.display = 'none';
-                            document.getElementById('optionsCard').style.display = 'block';
-                            document.getElementById('processingTitle').textContent = 'Processing Failed';
-                            document.getElementById('processingText').textContent = 'Could not extract voice data';
-                            alert('Processing failed.');
+                            document.getElementById('processingCard').innerHTML = `
+                                <div class="card-body text-center py-4">
+                                    <div style="font-size: 2.5rem; margin-bottom: 1rem;">❌</div>
+                                    <h5 style="color: #ff6b6b;">Processing Failed</h5>
+                                    <p style="color: #888;" class="mb-3">Could not download or extract the demo.<br>Check the server logs for details.</p>
+                                    <a href="/reset" class="btn btn-primary">+ New Demo</a>
+                                </div>`;
+                            document.getElementById('processingCard').style.display = 'block';
+                            document.getElementById('optionsCard').style.display = 'none';
                         } else {
                             console.log('Still processing... status:', data.status);
                         }

@@ -109,6 +109,7 @@ func init() {
 func main() {
 	// Handle routes (removed password auth)
 	http.HandleFunc("/", handleHome)
+	http.HandleFunc("/reset", handleReset)
 	http.HandleFunc("/upload", handleUpload)
 	http.HandleFunc("/api/upload", handleAPIUpload) // JSON API for external services
 	http.HandleFunc("/download-from-url", handleDownloadFromURL)
@@ -218,6 +219,16 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		Players: metadata.Players,
 		ChatLog: metadata.ChatLog,
 	})
+}
+
+func handleReset(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:    "current_demo_id",
+		Value:   "",
+		Path:    "/",
+		MaxAge:  -1,
+	})
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func handleHome(w http.ResponseWriter, r *http.Request) {

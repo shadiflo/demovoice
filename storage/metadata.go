@@ -238,13 +238,16 @@ func (s *MetadataStore) FindDemoByMatchID(matchID string, maxAge time.Duration) 
 	if s.redis != nil {
 		if demoID, err := s.redis.GetMatchIndex(matchID); err == nil {
 			metadata, err := s.LoadMetadata(demoID)
-			if err == nil {
+			if err == nil && metadata.Status != "failed" {
 				age := time.Since(metadata.UploadTime)
 				if age <= maxAge {
 					log.Printf("Redis cache HIT for match %s → demo %s (age: %v)", matchID, demoID, age)
 					return metadata, nil
 				}
 				log.Printf("Redis cache HIT but expired for match %s (age: %v, max: %v)", matchID, age, maxAge)
+				s.redis.DeleteMetadata(demoID)
+			} else if err == nil && metadata.Status == "failed" {
+				log.Printf("Redis cache HIT but demo %s failed — evicting and retrying", demoID)
 				s.redis.DeleteMetadata(demoID)
 			}
 		}
@@ -265,7 +268,7 @@ func (s *MetadataStore) FindDemoByMatchID(matchID string, maxAge time.Duration) 
 				continue
 			}
 
-			if metadata.MatchID == matchID {
+			if metadata.MatchID == matchID && metadata.Status != "failed" {
 				age := now.Sub(metadata.UploadTime)
 				if age <= maxAge {
 					log.Printf("Found existing demo for match %s: %s (age: %v)", matchID, demoID, age)
